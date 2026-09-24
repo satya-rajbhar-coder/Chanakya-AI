@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+python-multipart          # file uploads
+sqlalchemy
+psycopg[binary]           # or the driver for your DATABASE_URL
+pydantic[email]
+pydantic-settings
+pyjwt
+pwdlib[argon2]
+
+# LLM + RAG
+langchain-core
+langchain-ollama
+langchain-text-splitters
+langchain-chroma
+chromadb
+pypdf
