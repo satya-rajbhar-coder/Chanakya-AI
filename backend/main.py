@@ -7,23 +7,28 @@ from api.router import api_router
 from core.config import settings
 from database.base import Base
 from database.session import engine
+from rag.vector_store import init_vector_store
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings.VECTOR_STORE_DIR.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
-
+    # init_vector_store()
     yield
 
 
 app = FastAPI(title="AI Chat API", version="2.0.0", lifespan=lifespan)
 
-ALLOWED_ORIGINS = list(dict.fromkeys([
-    settings.FRONTEND_ORIGIN,
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]))
+ALLOWED_ORIGINS = list(
+    dict.fromkeys(
+        [
+            settings.FRONTEND_ORIGIN,
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://192.168.1.25:3000"
+        ]
+    )
+)
 
 app.add_middleware(
     CORSMiddleware,

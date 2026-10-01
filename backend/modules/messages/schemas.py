@@ -6,9 +6,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from .models import Role
 
-Content = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1)
-]
+Content = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class MessageCreate(BaseModel):

@@ -23,12 +23,7 @@ import {
 } from "@/services/documents"
 import { getApiErrorMessage } from "@/services/error"
 
-/**
- * Shared state for everything that lives outside a single chat: the sidebar's
- * conversation list and the user's indexed documents. Before this, the
- * sidebar fetched conversations once on mount, so a newly created chat never
- * showed up until a full reload.
- */
+
 interface WorkspaceContextValue {
     conversations: ConversationResponse[]
     documents: DocumentResponse[]

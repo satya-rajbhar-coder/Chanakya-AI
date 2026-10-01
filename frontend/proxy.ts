@@ -37,7 +37,7 @@ function clearSessionCookies(response: NextResponse) {
     response.cookies.delete({ name: REFRESH_COOKIE, path: "/api/auth" });
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     const { pathname, searchParams } = request.nextUrl;
     const publicPath = isPublicPath(pathname);
 

@@ -3,8 +3,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-Name = Annotated[str, StringConstraints(
-    strip_whitespace=True, min_length=1, max_length=100)]
+Name = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+]
 
 
 class UserUpdate(BaseModel):
@@ -15,9 +16,7 @@ class UserUpdate(BaseModel):
     @model_validator(mode="after")
     def require_current_password(self):
         if self.password is not None and not self.current_password:
-            raise ValueError(
-                "current_password is required to change the password"
-            )
+            raise ValueError("current_password is required to change the password")
         return self
 
 

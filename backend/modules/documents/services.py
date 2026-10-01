@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -20,7 +21,7 @@ class DocumentService:
         self.db = db
         self.repo = DocumentRepository(db)
 
-    def upload(self, user: User, file: UploadFile) -> Document:
+    async def upload(self, user: User, file: UploadFile) -> Document:
         filename = Path(file.filename or "").name
         extension = Path(filename).suffix.lower()
 
@@ -32,7 +33,7 @@ class DocumentService:
             )
 
         max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
-        data = file.file.read(max_bytes + 1)
+        data = await file.read(max_bytes + 1)
 
         if not data:
             raise HTTPException(
@@ -52,10 +53,11 @@ class DocumentService:
             size_bytes=len(data),
         )
         self.repo.add(document)
-        self.db.flush()  # assigns document.id
+        self.db.flush()
 
         try:
-            document.chunk_count = ingest_document(
+            document.chunk_count = await run_in_threadpool(
+                ingest_document,
                 user_id=user.id,
                 document_id=document.id,
                 filename=document.filename,
@@ -64,18 +66,14 @@ class DocumentService:
         except (UnsupportedFileError, EmptyDocumentError) as exc:
             self.db.rollback()
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(exc),
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
             )
         except Exception:
             self.db.rollback()
             logger.exception("Indexing failed for %s", filename)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(
-                    "Could not index the document. Is Ollama running and the "
-                    f"'{settings.EMBEDDING_MODEL}' embedding model pulled?"
-                ),
+                detail="Could not index the document. Check the vector database connection and embedding model settings.",
             )
 
         try:
@@ -83,7 +81,7 @@ class DocumentService:
             self.db.refresh(document)
         except Exception:
             self.db.rollback()
-            delete_document_chunks(document.id)
+            await run_in_threadpool(delete_document_chunks, document.id)
             raise
 
         return document
@@ -91,16 +89,14 @@ class DocumentService:
     def get_documents(self, user: User) -> list[Document]:
         return self.repo.get_all(user.id)
 
-    def delete_document(self, user: User, document_id: UUID) -> None:
+    async def delete_document(self, user: User, document_id: UUID) -> None:
         document = self.repo.get_by_id(user.id, document_id)
         if document is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document does not exist",
+                status_code=status.HTTP_404_NOT_FOUND, detail="Document does not exist"
             )
-
         try:
-            delete_document_chunks(document.id)
+            await run_in_threadpool(delete_document_chunks, document.id)
             self.repo.delete(document)
             self.db.commit()
         except Exception:

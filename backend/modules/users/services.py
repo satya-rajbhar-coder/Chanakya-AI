@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.security import hash_password, verify_password
 from modules.auth.repository import RefreshTokenRepository
 from rag.service import delete_user_chunks
+
 from .models import User
 from .repository import UserRepository
 from .schemas import UserUpdate
@@ -24,8 +25,7 @@ class UserService:
         user = self.repo.get_by_id(user_id)
         if user is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User does not exist"
+                status_code=status.HTTP_404_NOT_FOUND, detail="User does not exist"
             )
         return user
 
@@ -39,11 +39,11 @@ class UserService:
             if not verify_password(data.current_password or "", user.hashed_password):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Current password is incorrect"
+                    detail="Current password is incorrect",
                 )
             user.hashed_password = hash_password(data.password)
             RefreshTokenRepository(self.db).revoke_all_for_user(
-                user.id, datetime.now(timezone.utc)
+                user.id, datetime.now(UTC)
             )
 
         try:

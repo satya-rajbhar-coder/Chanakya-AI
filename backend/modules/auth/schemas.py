@@ -2,9 +2,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, EmailStr, Field, StringConstraints, model_validator
 
-
-Name = Annotated[str, StringConstraints(
-    strip_whitespace=True, min_length=1, max_length=100)]
+Name = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+]
 
 
 class RegisterRequest(BaseModel):

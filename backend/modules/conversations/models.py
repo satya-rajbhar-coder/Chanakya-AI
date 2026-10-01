@@ -17,32 +17,28 @@ DEFAULT_TITLE = "New Chat"
 class Conversation(Base):
     __tablename__ = "conversations"
 
-    id: Mapped[UUID] = mapped_column(
-        Uuid, primary_key=True,
-        default=uuid4
-    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"),
-        nullable=False, index=True,
+        Uuid,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
     )
 
-    title: Mapped[str] = mapped_column(
-        String(100), nullable=False
-    )
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        server_default=func.now()
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
-    user: Mapped["User"] = relationship(back_populates="conversations")
-    messages: Mapped[list["Message"]] = relationship(
-        back_populates="conversation",
-        cascade="all, delete-orphan"
+    user: Mapped[User] = relationship(back_populates="conversations")
+    messages: Mapped[list[Message]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (
-        Index("ix_conversations_user_updated", "user_id", "updated_at"),)
+    __table_args__ = (Index("ix_conversations_user_updated", "user_id", "updated_at"),)

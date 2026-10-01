@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, X } from "lucide-react"
 
@@ -19,7 +19,6 @@ import ChatInput from "./ChatInput"
 import ChatMessages from "./ChatMessages"
 
 interface ChatWindowProps {
-    // Absent on "/" (new chat). The conversation is created on first send.
     conversationId?: string
 }
 
@@ -45,7 +44,6 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
     const [loadingOlder, setLoadingOlder] = useState(false)
     const [sending, setSending] = useState(false)
 
-    // Seeded from a failure that happened right before we navigated here.
     const [error, setError] = useState<string | null>(flashError)
 
     const bottomRef = useRef<HTMLDivElement>(null)
@@ -55,14 +53,12 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
     const title =
         conversations.find((c) => c.id === conversationId)?.title ?? "New chat"
 
-    // Consume the flash error once it has been copied into local state.
     useEffect(() => {
         if (flashError) {
             setFlashError(null)
         }
     }, [flashError, setFlashError])
 
-    // ---- load history -----------------------------------------------------
     useEffect(() => {
         if (!conversationId) {
             return
@@ -80,7 +76,6 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
 
                 if (cancelled) return
 
-                // The API returns newest first; render oldest first.
                 setMessages([...page.items].reverse())
                 setNextCursor(page.next_cursor)
             } catch (err) {
@@ -97,7 +92,6 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
         }
     }, [conversationId])
 
-    // ---- keep the view pinned to the newest message -------------------------
     useEffect(() => {
         if (skipScrollRef.current) {
             skipScrollRef.current = false
@@ -113,7 +107,6 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
         }
     }, [messages, sending])
 
-    // ---- older messages ---------------------------------------------------
     const loadOlder = async () => {
         if (!conversationId || !nextCursor || loadingOlder) {
             return
@@ -137,7 +130,6 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
         }
     }
 
-    // ---- send -------------------------------------------------------------
     const handleSend = async (content: string) => {
         if (sending) {
             return
@@ -146,8 +138,6 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
         setError(null)
         setSending(true)
 
-        // Show the user's message immediately; swapped for the saved one
-        // when the server answers.
         const tempId = `temp-${Date.now()}`
         const now = new Date().toISOString()
 
@@ -198,8 +188,6 @@ const ChatWindow = ({ conversationId }: ChatWindowProps) => {
             const message = getApiErrorMessage(err)
 
             if (createdHere && activeId) {
-                // The conversation (and the saved user message) exist now, so
-                // go there rather than leaving a second "new chat" behind.
                 setFlashError(message)
                 router.replace(`/chat/${activeId}`)
                 return

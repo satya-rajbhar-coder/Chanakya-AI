@@ -17,19 +17,25 @@ class Document(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
 
     user_id: Mapped[UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(
-        String(100), nullable=False, default="application/octet-stream",
+        String(100),
+        nullable=False,
+        default="application/octet-stream",
     )
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
 
-    user: Mapped["User"] = relationship("User", back_populates="documents")
+    user: Mapped[User] = relationship("User", back_populates="documents")

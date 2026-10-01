@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,18 +18,23 @@ class Settings(BaseSettings):
     SQL_ECHO: bool = False
 
     # --- LLM (Ollama) ----------------------------------------------------
-    MODEL_NAME: str = "qwen3.5"
+    OLLAMA_MODEL_NAME: str = "qwen3.5"
+    GROQ_MODEL_NAME: str = "openai/gpt-oss-120b"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+    GROQ_API_KEY: SecretStr
+    GOOGLE_API_KEY: SecretStr
     LLM_TIMEOUT_SECONDS: float = 120.0
 
     # --- RAG -------------------------------------------------------------
-    EMBEDDING_MODEL: str = "qwen3-embedding"   # ollama pull nomic-embed-text
+    OLLAMA_EMBEDDING_MODEL: str = "qwen3-embedding"
+    GOOGLE_EMBEDDING_MODEL: str
     VECTOR_STORE_DIR: Path = Path("storage/chroma")
-    VECTOR_COLLECTION: str = "documents"
+    VECTOR_STORE_URL: str
+    VECTOR_COLLECTION: str = "vector_documents"
+    VECTOR_DIMENSION: int = 4096
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 150
     RETRIEVER_K: int = 5
-    # Cosine distance cut-off (0 = identical, 2 = opposite). None = keep top-k.
     RAG_MAX_DISTANCE: float | None = None
     MAX_UPLOAD_MB: int = 20
 

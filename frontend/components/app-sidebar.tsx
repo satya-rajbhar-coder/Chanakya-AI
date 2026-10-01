@@ -1,6 +1,6 @@
 "use client"
 
-import { LogOut, SquarePen, Trash2 } from "lucide-react"
+import { LogOut, SquarePen, Trash2, Moon, Sun } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 
 import {
@@ -12,6 +12,8 @@ import {
     SidebarHeader,
     SidebarTrigger,
 } from "@/components/ui/sidebar"
+
+import { useTheme } from "next-themes"
 
 import { DocumentsPanel } from "@/components/documents-panel"
 import { useWorkspace } from "@/components/workspace-provider"
@@ -27,6 +29,8 @@ interface AppSidebarProps {
 export const AppSidebar = ({ user }: AppSidebarProps) => {
     const router = useRouter()
     const params = useParams<{ id?: string }>()
+
+    const { theme,  setTheme } = useTheme()
 
     const { conversations, removeConversation } = useWorkspace()
 
@@ -155,6 +159,25 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
                         </p>
                     </div>
                 )}
+
+                <button
+                    type="button"
+                    onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                    className="flex items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-accent"
+                    aria-label="Toggle theme"
+                >
+                    <div className="flex items-center gap-2">
+                        {theme === "dark" ? (
+                            <Moon className="size-4 shrink-0" />
+                        ) : (
+                            <Sun className="size-4 shrink-0" />
+                        )}
+
+                        <span className="group-data-[collapsible=icon]:hidden">
+                            {theme === "dark" ? "Dark mode" : "Light mode"}
+                        </span>
+                    </div>
+                </button>
 
                 <button
                     onClick={handleLogout}

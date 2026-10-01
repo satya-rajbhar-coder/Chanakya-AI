@@ -19,10 +19,29 @@ interface RetryableRequestConfig extends InternalAxiosRequestConfig {
 // Share one in-flight refresh between all concurrent 401s.
 let refreshPromise: Promise<void> | null = null;
 
+// const refreshSession = (): Promise<void> => {
+//     if (!refreshPromise) {
+//         refreshPromise = api
+//             .post("/auth/refresh")
+//             .then(() => undefined)
+//             .finally(() => {
+//                 refreshPromise = null;
+//             });
+//     }
+
+//     return refreshPromise;
+// };
+
 const refreshSession = (): Promise<void> => {
     if (!refreshPromise) {
         refreshPromise = api
-            .post("/auth/refresh")
+            .post(
+                "/auth/refresh",
+                {},
+                {
+                    withCredentials: true,
+                }
+            )
             .then(() => undefined)
             .finally(() => {
                 refreshPromise = null;
@@ -31,6 +50,8 @@ const refreshSession = (): Promise<void> => {
 
     return refreshPromise;
 };
+
+
 
 api.interceptors.response.use(
     (response) => response,

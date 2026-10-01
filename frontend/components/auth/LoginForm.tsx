@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState } from "react"
+import type { ChangeEvent, Dispatch, SetStateAction } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
@@ -20,9 +21,27 @@ import { Field, FieldLabel, FieldDescription } from "../ui/field"
 import { login } from "@/services/auth"
 import { getApiErrorMessage } from "@/services/error"
 
+
+const handleChange = (
+    event: ChangeEvent<HTMLInputElement>,
+    setValue: Dispatch<SetStateAction<string>>,
+    setError: Dispatch<SetStateAction<string>>
+) => {
+    const input = event.target.value;
+
+    if (/\p{Extended_Pictographic}/u.test(input)) {
+        setError("Emojis are not allowed");
+        return;
+    }
+    setError("");
+    setValue(input);
+}
+
+
 const LoginForm = () => {
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
+
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState("")
 
@@ -78,7 +97,7 @@ const LoginForm = () => {
                         <Input
                             id="login-input-field-email"
                             type="email" value={email}
-                            onChange={(e) => setEmail(e.target.value)}
+                            onChange={(e) => handleChange(e, setEmail, setError)}
                             placeholder="Enter your email" required
                             disabled={loading} autoComplete="email"
                         />
@@ -90,7 +109,7 @@ const LoginForm = () => {
                         <Input
                             id="login-input-field-password"
                             type="password" value={password}
-                            onChange={(e) => setPassword(e.target.value)}
+                            onChange={(e) => handleChange(e, setPassword, setError)}
                             placeholder="Enter password"
                             disabled={loading} required
                             autoComplete="current-password"

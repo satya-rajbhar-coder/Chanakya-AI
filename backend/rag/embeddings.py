@@ -1,13 +1,14 @@
 from functools import lru_cache
 
-from langchain_ollama import OllamaEmbeddings
+from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
 
 from core.config import settings
 
 
 @lru_cache(maxsize=1)
-def get_embeddings() -> OllamaEmbeddings:
-    return OllamaEmbeddings(
-        model=settings.EMBEDDING_MODEL,
-        base_url=settings.OLLAMA_BASE_URL,
+def get_google_embeddings() -> GoogleGenerativeAIEmbeddings:
+    return GoogleGenerativeAIEmbeddings(
+        model=settings.GOOGLE_EMBEDDING_MODEL,
+        api_key=settings.GOOGLE_API_KEY,
+        output_dimensionality=settings.VECTOR_DIMENSION,
     )

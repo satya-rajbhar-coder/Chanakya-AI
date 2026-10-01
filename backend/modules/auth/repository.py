@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
+
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
+
 from .models import RefreshToken
 
 
@@ -14,9 +16,7 @@ class RefreshTokenRepository:
         return token
 
     def get_by_hash(self, token_hash: str) -> RefreshToken | None:
-        stmt = select(RefreshToken).where(
-            RefreshToken.token_hash == token_hash
-        )
+        stmt = select(RefreshToken).where(RefreshToken.token_hash == token_hash)
 
         return self.db.scalar(stmt)
 

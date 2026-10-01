@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState } from "react"
+import type { ChangeEvent, Dispatch, SetStateAction } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
@@ -15,6 +16,24 @@ import {
 
 import { register } from "@/services/auth"
 import { getApiErrorMessage } from "@/services/error"
+
+
+const handleChange = (
+    event: ChangeEvent<HTMLInputElement>,
+    setValue: Dispatch<SetStateAction<string>>,
+    setError: Dispatch<SetStateAction<string>>
+) => {
+    const input = event.target.value;
+
+    if (/\p{Extended_Pictographic}/u.test(input)) {
+        setError("Emojis are not allowed");
+        return;
+    }
+
+    setError("");
+    setValue(input);
+}
+
 
 const RegisterForm = () => {
     const [name, setName] = useState("")
@@ -109,7 +128,7 @@ const RegisterForm = () => {
                         <Input
                             id="register-input-field-name"
                             type="text" value={name}
-                            onChange={(e) => setName(e.target.value)}
+                            onChange={(e) => handleChange(e, setName, setError)}
                             placeholder="Enter your name" required
                             disabled={loading}
                         />
@@ -121,7 +140,7 @@ const RegisterForm = () => {
                         <Input
                             id="register-input-field-email"
                             type="email" value={email}
-                            onChange={(e) => setEmail(e.target.value)}
+                            onChange={(e) => handleChange(e, setEmail, setError)}
                             placeholder="Enter your email" required
                             disabled={loading}
                         />
@@ -133,7 +152,7 @@ const RegisterForm = () => {
                         <Input
                             id="register-input-field-password"
                             type="password" value={password} required
-                            onChange={(e) => setPassword(e.target.value)}
+                            onChange={(e) => handleChange(e, setPassword, setError)}
                             placeholder="Enter password" disabled={loading}
                         />
 
@@ -144,7 +163,7 @@ const RegisterForm = () => {
                         <Input
                             id="register-input-field-confirm-password"
                             type="password" value={confirmPassword} required
-                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            onChange={(e) => handleChange(e, setConfirmPassword, setError)}
                             placeholder="Enter confirm password" disabled={loading}
                         />
 
