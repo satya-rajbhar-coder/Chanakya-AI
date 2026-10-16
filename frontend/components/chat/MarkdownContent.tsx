@@ -3,11 +3,12 @@
 import { useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import rehypeRaw from "rehype-raw"
 import { Check, Copy } from "lucide-react"
 
 import { markdownComponents } from "../markdown/MarkdownComponents"
 import { copyToClipboard } from "../markdown/markdown-utils"
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 
 interface MarkdownContentProps {
     content: string
@@ -35,45 +36,39 @@ const MarkdownContent = ({
     }
 
     return (
-        <div className="flex w-full justify-start">
-            <div className="min-w-0 max-w-[85%] rounded-lg bg-transparent px-4 py-3">
+        <div className="group w-full">
+            <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                >
+                    {content}
+                </ReactMarkdown>
+            </div>
 
-                <div className="wrap-break-word text-sm">
-                    <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeRaw]}
-                        components={markdownComponents}
-                    >
-                        {content}
-                    </ReactMarkdown>
-                </div>
-
-                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-
-                    {timestamp && (
-                        <span>
-                            {new Date(timestamp).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                            })}
-                        </span>
+            <div className="mt-1 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleCopy}
+                    className="size-7 text-muted-foreground hover:text-foreground"
+                    aria-label={copied ? "Copied" : "Copy response"}
+                >
+                    {copied ? (
+                        <Check className="size-3.5 text-emerald-500" />
+                    ) : (
+                        <Copy className="size-3.5" />
                     )}
+                </Button>
 
-                    <button
-                        type="button"
-                        onClick={handleCopy}
-                        className="rounded p-1 transition-colors hover:bg-background hover:text-foreground"
-                        title="Copy message"
-                        aria-label="Copy message"
-                    >
-                        {copied ? (
-                            <Check className="size-3.5" />
-                        ) : (
-                            <Copy className="size-3.5" />
-                        )}
-                    </button>
-
-                </div>
+                {timestamp && (
+                    <span className="text-xs text-muted-foreground">
+                        {new Date(timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                        })}
+                    </span>
+                )}
             </div>
         </div>
     )

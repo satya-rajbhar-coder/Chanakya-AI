@@ -5,7 +5,7 @@ const API_URL =
 
 const ACCESS_COOKIE = "access_token";
 const REFRESH_COOKIE = "refresh_token";
-const PUBLIC_PATHS = ["/login", "/register"];
+const PUBLIC_PATHS = ["/login"];
 
 const isPublicPath = (pathname: string) =>
     PUBLIC_PATHS.some(

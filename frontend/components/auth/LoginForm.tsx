@@ -2,7 +2,6 @@
 
 import React, { useState } from "react"
 import type { ChangeEvent, Dispatch, SetStateAction } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 import {
@@ -134,7 +133,9 @@ const LoginForm = () => {
                 </CardContent>
 
                 <CardFooter className="flex items-center justify-center">
-                    <p className="text-center">Don&apos;t have an account? <Link href="/register" className="text-blue-500">Register</Link></p>
+                    <p className="text-center text-sm text-muted-foreground">
+                        Accounts are created by an administrator.
+                    </p>
                 </CardFooter>
             </Card>
         </form>

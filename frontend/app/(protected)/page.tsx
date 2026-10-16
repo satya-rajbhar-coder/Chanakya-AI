@@ -1,5 +1,5 @@
-import ChatWindow from "@/components/chat/ChatWindow";
+import ChatHome from "@/components/chat/ChatHome";
 
 export default function NewChatPage() {
-  return <ChatWindow />;
+  return <ChatHome />;
 }

@@ -1,17 +1,20 @@
 fastapi
 uvicorn[standard]
-python-multipart          # file uploads
+python-multipart
 sqlalchemy
-psycopg[binary]           # or the driver for your DATABASE_URL
+psycopg[binary]
 pydantic[email]
 pydantic-settings
 pyjwt
 pwdlib[argon2]
-
-# LLM + RAG
 langchain-core
-langchain-ollama
 langchain-text-splitters
-langchain-chroma
-chromadb
+langchain-groq
+langchain-google-genai
+langchain-postgres
+langchain-docling
+docling
 pypdf
+sqlglot>=30.21.0
+asyncpg
+pyodbc

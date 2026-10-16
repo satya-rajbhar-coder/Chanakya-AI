@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from llm.service import QuestionIntent, classify_intent, generate_reply
+from llm.service import generate_reply, is_not_found
 from modules.conversations.models import DEFAULT_TITLE
 from modules.conversations.services import ConversationService
 from modules.documents.repository import DocumentRepository
@@ -29,7 +29,8 @@ HISTORY_LIMIT = 20
 SHORT_QUESTION_CHARS = 80
 Cursor = tuple[datetime, UUID]
 
-NOT_FOUND_NOTE = "\n\n_Note: I couldn't find relevant passages in your uploaded documents for this question._"
+NO_DOCUMENTS_REPLY = "No documents are available for your assigned assemblies. Contact your administrator."
+NOT_FOUND_REPLY = "I couldn't find the answer in the documents available to you."
 
 
 def encode_cursor(cursor: Cursor) -> str:
@@ -64,7 +65,7 @@ class MessageService:
 
     def _has_documents(self, user: User) -> bool:
         try:
-            return self.documents.count_for_user(user.id) > 0
+            return self.documents.count_visible(user) > 0
         except Exception:
             logger.exception("Failed to check documents for user %s", user.id)
             return False
@@ -87,28 +88,14 @@ class MessageService:
     ) -> list[RetrievedChunk]:
         query = self._build_retrieval_query(question, history)
         try:
-            return retrieve(user.id, query)
+            return retrieve(self.documents.visible_ids(user), query)
         except Exception:
+            # Strict scope: an empty list would look like "not found", so fail loudly.
             logger.exception("Document retrieval failed for user %s", user.id)
-            return []
-
-    def _classify(
-        self, content: str, history: list[tuple[str, str]], has_documents: bool
-    ) -> QuestionIntent:
-        if not has_documents:
-            return QuestionIntent(intent="GENERAL", confidence=1.0)
-
-        previous = self._previous_user_message(history)
-        text = (
-            f"Previous user message: {previous[:300]}\nLatest question: {content}"
-            if previous
-            else content
-        )
-        try:
-            return classify_intent(user_content=text)
-        except Exception:
-            logger.exception("Intent classification failed")
-            return QuestionIntent(intent="DOCUMENT", confidence=0.0)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Document search is currently unavailable",
+            )
 
     def _commit(self) -> None:
         try:
@@ -140,37 +127,34 @@ class MessageService:
         self.db.refresh(user_message)
 
         has_documents = self._has_documents(user)
-        intent = self._classify(content, history, has_documents)
-        logger.info(
-            "Question intent: %s | confidence=%.2f | conversation=%s",
-            intent.intent,
-            intent.confidence,
-            conversation.id,
-        )
+        chunks = self._retrieve_context(user, content, history) if has_documents else []
 
-        chunks: list[RetrievedChunk] = []
-        if intent.intent == "DOCUMENT" and has_documents:
-            chunks = self._retrieve_context(user, content, history)
+        if not has_documents:
+            answer = NO_DOCUMENTS_REPLY
+        elif not chunks:
+            # Nothing relevant retrieved: the LLM is not even called.
+            answer = NOT_FOUND_REPLY
+        else:
+            try:
+                raw = generate_reply(
+                    history=history,
+                    user_content=content,
+                    context=format_context(chunks),
+                ).strip()
+                if not raw:
+                    raise ValueError("Empty LLM response")
+            except Exception:
+                logger.exception(
+                    "LLM request failed for conversation %s", conversation.id
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="The language model is currently unavailable",
+                )
 
-        try:
-            answer = generate_reply(
-                history=history,
-                user_content=content,
-                context=format_context(chunks) if chunks else None,
-            ).strip()
-            if not answer:
-                raise ValueError("Empty LLM response")
-        except Exception:
-            logger.exception("LLM request failed for conversation %s", conversation.id)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="The language model is currently unavailable",
+            answer = (
+                NOT_FOUND_REPLY if is_not_found(raw) else raw + format_sources(chunks)
             )
-
-        if chunks:
-            answer += format_sources(chunks)
-        elif intent.intent == "DOCUMENT" and has_documents:
-            answer += NOT_FOUND_NOTE
 
         assistant_message = Message(
             conversation_id=conversation.id,

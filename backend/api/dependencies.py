@@ -24,8 +24,11 @@ def get_current_user(
         payload = verify_access_token(access_token)
         user_id = UUID(str(payload["sub"]))
 
-        return UserService(db).get_user_by_id(user_id)
-    except HTTPException, ValueError, TypeError, KeyError:
+        user = UserService(db).get_user_by_id(user_id)
+        if not user.is_active:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account disabled")
+        return user
+    except (HTTPException, ValueError, TypeError, KeyError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
@@ -33,3 +36,12 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_admin(user: CurrentUser) -> User:
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]

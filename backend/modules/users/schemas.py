@@ -24,5 +24,7 @@ class UserResponse(BaseModel):
     id: UUID
     name: str
     email: str
+    role: str
+    is_active: bool
 
     model_config = ConfigDict(from_attributes=True)

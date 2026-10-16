@@ -1,8 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { Check, Copy } from "lucide-react"
 
 import { copyToClipboard } from "./markdown-utils"
@@ -30,17 +28,17 @@ export default function CodeBlock({ language, code }: CodeBlockProps) {
     }
 
     return (
-        <div className="my-4 overflow-hidden rounded-lg border bg-[#282c34]">
+        <div className="my-4 overflow-hidden rounded-lg border bg-muted/50">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
-                <span className="text-xs font-medium text-white/60">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+                <span className="text-xs font-medium text-muted-foreground">
                     {language}
                 </span>
 
                 <button
                     type="button"
                     onClick={handleCopy}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
                     {copied ? (
                         <Check className="size-3" />
@@ -53,19 +51,9 @@ export default function CodeBlock({ language, code }: CodeBlockProps) {
             </div>
 
             {/* Code */}
-            <SyntaxHighlighter
-                language={language}
-                style={oneDark}
-                customStyle={{
-                    margin: 0,
-                    padding: "1rem",
-                    background: "transparent",
-                    fontSize: "0.875rem",
-                    lineHeight: "1.5",
-                }}
-            >
-                {code}
-            </SyntaxHighlighter>
+            <pre className="overflow-x-auto p-4 text-sm leading-relaxed">
+                <code>{code}</code>
+            </pre>
         </div>
     )
 }

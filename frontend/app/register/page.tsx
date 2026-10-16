@@ -1,9 +1,6 @@
-import React from 'react'
+import { redirect } from "next/navigation"
 
-import RegisterForm from '@/components/auth/RegisterForm'
-
-const Register = () => {
-  return <RegisterForm />
+// Public self-registration is disabled; accounts are created by admins.
+export default function Register() {
+    redirect("/login")
 }
-
-export default Register

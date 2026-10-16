@@ -1,4 +1,4 @@
-import ChatWindow from "@/components/chat/ChatWindow";
+import DocumentsChat from "@/components/chat/DocumentsChat";
 
 export default async function ConversationPage({
   params,
@@ -7,5 +7,5 @@ export default async function ConversationPage({
 }) {
   const { id } = await params;
 
-  return <ChatWindow key={id} conversationId={id} />;
+  return <DocumentsChat key={id} conversationId={id} />;
 }

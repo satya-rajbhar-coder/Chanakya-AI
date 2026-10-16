@@ -4,9 +4,11 @@ from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.config import settings
+from modules.analysis.models import Client
 from modules.users.models import User
 from rag.loader import SUPPORTED_EXTENSIONS, EmptyDocumentError, UnsupportedFileError
 from rag.service import delete_document_chunks, ingest_document
@@ -21,7 +23,13 @@ class DocumentService:
         self.db = db
         self.repo = DocumentRepository(db)
 
-    async def upload(self, user: User, file: UploadFile) -> Document:
+    async def upload(
+        self,
+        user: User,
+        file: UploadFile,
+        user_ids: list[UUID],
+    ) -> Document:
+        user_ids = self._validate_scope(None, user_ids)
         filename = Path(file.filename or "").name
         extension = Path(filename).suffix.lower()
 
@@ -48,12 +56,14 @@ class DocumentService:
 
         document = Document(
             user_id=user.id,
+            client_id=None,
             filename=filename[:255],
             content_type=(file.content_type or "application/octet-stream")[:100],
             size_bytes=len(data),
         )
         self.repo.add(document)
         self.db.flush()
+        self.repo.set_assignments(document, user_ids)
 
         try:
             document.chunk_count = await run_in_threadpool(
@@ -87,10 +97,56 @@ class DocumentService:
         return document
 
     def get_documents(self, user: User) -> list[Document]:
-        return self.repo.get_all(user.id)
+        return self.repo.get_all(user)
+
+    def _validate_scope(
+        self, client_id: UUID | None, user_ids: list[UUID]
+    ) -> list[UUID]:
+        """A document must reach at least one place: a client or users."""
+        user_ids = list(dict.fromkeys(user_ids))
+        if (
+            client_id is not None
+            and self.db.get(Client, client_id) is None
+        ):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown client")
+        if not user_ids and client_id is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Assign the document to a client or at least one user",
+            )
+        if user_ids:
+            found = set(
+                self.db.scalars(select(User.id).where(User.id.in_(user_ids))).all()
+            )
+            if found != set(user_ids):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "Unknown user in assignment"
+                )
+        return user_ids
+
+    def set_assignments(
+        self,
+        document_id: UUID,
+        user_ids: list[UUID],
+    ) -> Document:
+        document = self.repo.get_by_id(document_id)
+        if document is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Document does not exist"
+            )
+        user_ids = self._validate_scope(None, user_ids)
+        document.client_id = None
+        self.repo.set_assignments(document, user_ids)
+        try:
+            self.db.commit()
+            self.db.refresh(document)
+        except Exception:
+            self.db.rollback()
+            raise
+        return document
 
     async def delete_document(self, user: User, document_id: UUID) -> None:
-        document = self.repo.get_by_id(user.id, document_id)
+        document = self.repo.get_by_id(document_id)
         if document is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Document does not exist"

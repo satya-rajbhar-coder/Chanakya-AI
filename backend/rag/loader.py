@@ -1,4 +1,5 @@
 import io
+import logging
 import re
 import tempfile
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from pypdf import PdfReader
 
 SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md"}
 MAX_TEXT_BLOCK_CHARS = 3000
+
+logger = logging.getLogger(__name__)
 
 
 class UnsupportedFileError(ValueError):
@@ -35,17 +38,6 @@ def _clean(text: str) -> str:
 def _is_table(block: str) -> bool:
     lines = [l for l in block.splitlines() if l.strip()]
     return len(lines) >= 2 and "|" in lines[0] and "|" in lines[1]
-
-
-def _detect_element_type(text: str) -> str:
-    stripped = text.strip()
-    if _is_table(stripped):
-        return "table"
-    if stripped.startswith("#"):
-        return "heading"
-    if stripped.startswith(("-", "*")):
-        return "list"
-    return "text"
 
 
 def _markdown_to_elements(markdown: str, base_metadata: dict) -> list[PageText]:
@@ -119,8 +111,8 @@ def _read_pdf_docling(filename: str, data: bytes) -> list[PageText]:
         if temp_path:
             try:
                 Path(temp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError:
+                logger.debug("Could not delete temp file %s", temp_path)
 
 
 def _read_pdf_pypdf(data: bytes) -> list[PageText]:

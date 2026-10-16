@@ -63,7 +63,7 @@ def _decode_token(token: str, expected_type: str) -> dict:
             raise exc
         UUID(str(subject))
         return payload
-    except jwt.PyJWTError, ValueError, TypeError:
+    except (jwt.PyJWTError, ValueError, TypeError):
         raise exc
 
 

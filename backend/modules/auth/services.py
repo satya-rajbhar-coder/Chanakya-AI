@@ -43,7 +43,7 @@ class AuthService:
         self.tokens.add(row)
         return access, refresh
 
-    def register(self, email: str, name: str, password: str) -> tuple[str, str]:
+    def create_user(self, email: str, name: str, password: str) -> User:
         email = _normalize_email(email)
         if self.users.get_by_email(email):
             raise HTTPException(
@@ -62,15 +62,13 @@ class AuthService:
                 status_code=status.HTTP_409_CONFLICT, detail="User already exists"
             )
 
-        tokens = self._issue(user)
-        self.db.commit()
-
-        return tokens
+        # The admin remains logged in; creating a user never issues a session.
+        return user
 
     def login(self, email: str, password: str) -> tuple[str, str]:
         user = self.users.get_by_email(_normalize_email(email))
 
-        if not user or not verify_password(password, user.hashed_password):
+        if not user or not user.is_active or not verify_password(password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid user or password",
@@ -99,7 +97,7 @@ class AuthService:
             raise invalid
 
         user = self.users.get_by_id(UUID(str(payload["sub"])))
-        if user is None:
+        if user is None or not user.is_active:
             raise invalid
 
         self.tokens.revoke(token_row, now)

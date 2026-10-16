@@ -5,21 +5,18 @@ export interface LoginRequest {
     password: string;
 }
 
-export interface RegisterRequest {
-    name: string;
-    email: string;
-    password: string;
-    confirm_password: string;
-}
-
 export interface AuthMessage {
     message: string
 }
+
+export type UserRole = "admin" | "user";
 
 export interface UserResponse {
     id: string;
     name: string;
     email: string;
+    role: UserRole;
+    is_active: boolean;
 }
 
 
@@ -31,12 +28,6 @@ export const login = async (data: LoginRequest): Promise<AuthMessage> => {
 
 export const refresh = async (): Promise<AuthMessage> => {
     const response = await api.post<AuthMessage>("/auth/refresh")
-
-    return response.data;
-}
-
-export const register = async (data: RegisterRequest): Promise<AuthMessage> => {
-    const response = await api.post<AuthMessage>("/auth/register", data);
 
     return response.data;
 }

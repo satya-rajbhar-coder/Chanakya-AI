@@ -11,25 +11,20 @@ interface ChatMessagesProps {
 }
 
 const ThinkingIndicator = () => (
-    <div className="flex w-full justify-start">
-        <div className="flex items-center gap-2 rounded-lg bg-muted px-4 py-3 text-sm text-muted-foreground">
-            <span className="flex gap-1" aria-hidden>
-                <span className="size-2 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                <span className="size-2 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                <span className="size-2 animate-bounce rounded-full bg-current" />
-            </span>
-            Thinking…
-        </div>
+    <div className="flex w-full items-center gap-1.5 py-2" aria-label="Assistant is thinking">
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground" />
     </div>
 )
 
 const ChatMessages = ({ messages, pending = false }: ChatMessagesProps) => {
     return (
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
             {messages.map((message) =>
                 message.role === "user" ? (
                     <div key={message.id} className="flex w-full justify-end">
-                        <div className="max-w-[70%] whitespace-pre-wrap wrap-break-word rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
+                        <div className="max-w-[75%] whitespace-pre-wrap break-words rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground">
                             {message.content}
                         </div>
                     </div>

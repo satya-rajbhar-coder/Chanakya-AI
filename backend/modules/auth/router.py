@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from core.cookies import REFRESH_COOKIE, clear_auth_cookies, set_auth_cookies
 from database.session import get_db
 
-from .schemas import AuthMessage, LoginRequest, RegisterRequest
+from .schemas import AuthMessage, LoginRequest
 from .services import AuthService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -19,17 +19,6 @@ def _unauthorized(detail: str) -> JSONResponse:
     )
     clear_auth_cookies(response)
     return response
-
-
-@router.post(
-    "/register", response_model=AuthMessage, status_code=status.HTTP_201_CREATED
-)
-def register(data: RegisterRequest, response: Response, db: Session = Depends(get_db)):
-    access, refresh_token = AuthService(db).register(
-        str(data.email), data.name, data.password
-    )
-    set_auth_cookies(response, access, refresh_token)
-    return {"message": "Registration successful"}
 
 
 @router.post("/login", response_model=AuthMessage)

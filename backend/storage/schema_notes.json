@@ -1,0 +1,8 @@
+{
+  "sales.customers": "Customers with name, email, city and signup date",
+  "sales.products": "Product catalogue with category and unit price",
+  "sales.orders": "One row per customer order with date, status (paid, shipped, cancelled, pending) and total amount",
+  "sales.order_items": "Line items of each order: product, quantity and unit price",
+  "hr.departments": "Company departments",
+  "hr.employees": "Employees with department, job title, salary and hire date"
+}

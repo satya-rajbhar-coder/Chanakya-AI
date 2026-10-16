@@ -1,11 +1,13 @@
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from langchain_core.documents import Document as LCDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import settings
 from database.session import engine
@@ -18,7 +20,14 @@ logger = logging.getLogger(__name__)
 SOURCES_MARKER = "\n\n---\n**Sources:**"
 EMBED_BATCH_SIZE = 32
 DEFAULT_NEIGHBOR_WINDOW = 1
-_TABLE = settings.VECTOR_COLLECTION  # trusted config value
+_TABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _vector_table() -> str:
+    table = settings.VECTOR_COLLECTION
+    if not _TABLE_PATTERN.fullmatch(table):
+        raise ValueError(f"Invalid vector table name: {table!r}")
+    return table
 
 
 @dataclass(frozen=True)
@@ -31,7 +40,6 @@ class RetrievedChunk:
     element_type: str = "text"
 
 
-# ------------------------------------------------------------ helpers
 def calculate_file_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -44,7 +52,7 @@ def calculate_text_hash(value: str) -> str:
 def _safe_int(value) -> int | None:
     try:
         return None if value is None else int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -170,11 +178,11 @@ def ingest_document(
                 len(chunks),
                 filename,
             )
-    except Exception:
+    except (SQLAlchemyError, ValueError, RuntimeError):
         logger.exception("Ingestion failed. Rolling back chunks: %s", document_id)
         try:
             delete_document_chunks(document_id)
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("Rollback of chunks failed for %s", document_id)
         raise
 
@@ -185,8 +193,9 @@ def ingest_document(
 def _delete_where(column: str, value: str) -> None:
     if column not in {"document_id", "user_id"}:
         raise ValueError("Invalid column")
+    table = _vector_table()
     with engine.begin() as conn:
-        conn.execute(text(f'DELETE FROM "{_TABLE}" WHERE {column} = :v'), {"v": value})
+        conn.execute(text(f'DELETE FROM "{table}" WHERE {column} = :v'), {"v": value})
 
 
 def delete_document_chunks(document_id: UUID) -> None:
@@ -198,22 +207,22 @@ def delete_user_chunks(user_id: UUID) -> None:
 
 
 def _get_neighbor_chunks(
-    *, user_id: UUID, document_id: str, chunk_index: int, window: int, distance: float
+    *, document_id: str, chunk_index: int, window: int, distance: float
 ) -> list[RetrievedChunk]:
-    sql = text(f'''
+    table = _vector_table()
+    sql = text(f"""
         SELECT content, filename, page, chunk_index, element_type
-        FROM "{_TABLE}"
-        WHERE user_id = :u AND document_id = :d
+        FROM "{table}"
+        WHERE document_id = :d
           AND chunk_index BETWEEN :lo AND :hi
         ORDER BY chunk_index
-        ''')
+        """)
 
     with engine.connect() as conn:
         rows = (
             conn.execute(
                 sql,
                 {
-                    "u": str(user_id),
                     "d": document_id,
                     "lo": max(0, chunk_index - window),
                     "hi": chunk_index + window,
@@ -237,18 +246,21 @@ def _get_neighbor_chunks(
 
 
 def retrieve(
-    user_id: UUID,
+    document_ids: list[UUID],
     query: str,
     k: int | None = None,
     neighbor_window: int = DEFAULT_NEIGHBOR_WINDOW,
 ) -> list[RetrievedChunk]:
+    if not document_ids:
+        return []
     store = get_pgvector_store()
     top_k = k if k is not None else settings.RETRIEVER_K
+    visible = {str(doc_id) for doc_id in document_ids}
 
     results = store.similarity_search_with_score(
         query,
         k=top_k,
-        filter={"user_id": str(user_id)},
+        filter={"document_id": {"$in": sorted(visible)}},
     )
 
     final: list[RetrievedChunk] = []
@@ -264,10 +276,11 @@ def retrieve(
 
         metadata = doc.metadata or {}
         document_id = str(metadata.get("document_id", ""))
+        if document_id not in visible:
+            continue
         chunk_index = _safe_int(metadata.get("chunk_index")) or 0
 
         neighbors = _get_neighbor_chunks(
-            user_id=user_id,
             document_id=document_id,
             chunk_index=chunk_index,
             window=neighbor_window,

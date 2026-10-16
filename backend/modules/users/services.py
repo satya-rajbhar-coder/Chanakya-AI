@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.security import hash_password, verify_password
 from modules.auth.repository import RefreshTokenRepository
+from modules.documents.repository import DocumentRepository
 from rag.service import delete_user_chunks
 
 from .models import User
@@ -56,6 +57,8 @@ class UserService:
 
     def delete_user(self, user_id: UUID) -> None:
         user = self.get_user_by_id(user_id)
+        if DocumentRepository(self.db).count_uploaded_by(user_id):
+            raise HTTPException(status.HTTP_409_CONFLICT, "An account with shared documents cannot be deleted; contact an administrator")
         try:
             self.repo.delete(user)
             self.db.commit()
@@ -63,7 +66,6 @@ class UserService:
             self.db.rollback()
             raise
 
-        # Rows are gone (documents cascade); now drop the user's vectors too.
         try:
             delete_user_chunks(user_id)
         except Exception:

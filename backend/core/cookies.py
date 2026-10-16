@@ -6,9 +6,6 @@ ACCESS_COOKIE = "access_token"
 REFRESH_COOKIE = "refresh_token"
 
 
-LEGACY_REFRESH_PATH = "/api/auth"
-
-
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     response.set_cookie(
         ACCESS_COOKIE,
@@ -33,4 +30,3 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
 def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(ACCESS_COOKIE, path="/")
     response.delete_cookie(REFRESH_COOKIE, path="/")
-    response.delete_cookie(REFRESH_COOKIE, path=LEGACY_REFRESH_PATH)
