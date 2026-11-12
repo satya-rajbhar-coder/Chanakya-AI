@@ -69,7 +69,7 @@ api.interceptors.response.use(
             await refreshSession();
             return api(originalRequest);
         } catch (refreshError) {
-            window.location.href = "/login?reason=expired";
+            window.location.replace("/login?reason=expired");
             return Promise.reject(refreshError);
         }
     }

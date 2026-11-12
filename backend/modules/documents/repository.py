@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from modules.analysis.models import UserClient
 from modules.users.models import User
+
 from .models import Document, DocumentAssignment
 
 

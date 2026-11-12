@@ -7,7 +7,6 @@ import { Check, Copy } from "lucide-react"
 
 import { markdownComponents } from "../markdown/MarkdownComponents"
 import { copyToClipboard } from "../markdown/markdown-utils"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
 interface MarkdownContentProps {
@@ -46,12 +45,12 @@ const MarkdownContent = ({
                 </ReactMarkdown>
             </div>
 
-            <div className="mt-1 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <div className="mt-1 flex h-7 items-center gap-1">
                 <Button
                     variant="ghost"
                     size="icon"
                     onClick={handleCopy}
-                    className="size-7 text-muted-foreground hover:text-foreground"
+                    className="size-7 text-muted-foreground"
                     aria-label={copied ? "Copied" : "Copy response"}
                 >
                     {copied ? (

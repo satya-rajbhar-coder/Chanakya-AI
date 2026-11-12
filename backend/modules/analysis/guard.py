@@ -1,6 +1,6 @@
-import sqlglot
 from collections.abc import Collection, Mapping
 
+import sqlglot
 from sqlglot import exp
 
 
@@ -29,23 +29,6 @@ def validate_select(
     known_tables: Collection[str] = (),
     resolve: Mapping[str, str] | None = None,
 ) -> str:
-    """Return normalized SQL, or raise UnsafeSQL.
-
-    Defence in depth only: the database role must ALSO be read-only.
-
-    allowed_tables is the top-k prompt set. known_tables is the full set of
-    real tables in the queried database(s): a model that correctly reaches
-    for a real table outside the top-k is accepted, not rejected. resolve
-    maps a logical (suffix-stripped) name to its exact physical table; such
-    references are rewritten to the physical name in the returned SQL.
-
-    Schema-qualified references are allowed ONLY for the shared main database
-    (pollmatrix.<table>), which every client connection exposes through its
-    foreign schema. All other cross-schema/cross-database reads are rejected.
-    A bare reference to a known shared table is rewritten to its qualified
-    FDW form; a logical (suffix-stripped) client-table name is rewritten to
-    the exact physical table.
-    """
     try:
         statements = [s for s in sqlglot.parse(sql, read=dialect) if s]
     except sqlglot.errors.SqlglotError as exc:
@@ -80,17 +63,13 @@ def validate_select(
     mapping = {k.lower(): v for k, v in (resolve or {}).items()}
     tables = list(tree.find_all(exp.Table))
 
-    # Strict scope: a query that reads no table could "answer" from the model's
-    # own knowledge, e.g. SELECT 'Paris'.
     if not tables:
         raise UnsafeSQL("The query must read from the database tables")
 
     for table in tables:
         schema = (table.db or "").lower()
         if schema and schema != main_schema:
-            raise UnsafeSQL(
-                "Cross-schema or cross-database references are not allowed"
-            )
+            raise UnsafeSQL("Cross-schema or cross-database references are not allowed")
         name = table.name.lower()
         if name in ctes or name in allowed or name in known:
             continue
@@ -98,7 +77,6 @@ def validate_select(
         if physical is None:
             raise UnsafeSQL(f"Table not available: {table.name}")
         if "." in physical:
-            # Shared table reached through the FDW schema: qualify it.
             fdw_schema, _, bare = physical.rpartition(".")
             table.set("db", exp.to_identifier(fdw_schema))
             table.set("this", exp.to_identifier(bare))

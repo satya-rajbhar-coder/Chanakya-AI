@@ -5,7 +5,7 @@ import { DialogProvider } from "@/components/ui/dialog-provider";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
-import { getSession } from "@/services/session";
+import { getSession } from "@/services/session.server";
 
 interface ProtectedLayoutProps {
     children: React.ReactNode;

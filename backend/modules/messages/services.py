@@ -1,16 +1,18 @@
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from llm.service import generate_reply, is_not_found
+from modules.analysis.models import AnalysisQuery
 from modules.conversations.models import DEFAULT_TITLE
 from modules.conversations.services import ConversationService
 from modules.documents.repository import DocumentRepository
+from modules.intelligence.models import ChatAnalysisQuery
 from modules.users.models import User
 from rag.service import (
     RetrievedChunk,
@@ -19,6 +21,7 @@ from rag.service import (
     retrieve,
     strip_sources,
 )
+
 from .models import Message, Role
 from .repository import MessageRepository
 from .schemas import MessageCreate, MessageUpdate
@@ -197,6 +200,57 @@ class MessageService:
             limit=min(max(limit, 1), 100),
             cursor=decoded,
         )
+        turns_by_timestamp: dict[datetime, list[Message]] = {}
+        for message in messages:
+            turns_by_timestamp.setdefault(message.created_at, []).append(message)
+
+        claimed_query_ids: set[UUID] = set()
+        linked_legacy_query = False
+        for turn_messages in turns_by_timestamp.values():
+            user_messages = [
+                message for message in turn_messages if message.role == Role.USER
+            ]
+            assistant_messages = [
+                message
+                for message in turn_messages
+                if message.role == Role.ASSISTANT
+            ]
+            if len(user_messages) != 1 or len(assistant_messages) != 1:
+                continue
+
+            user_message = user_messages[0]
+            assistant_message = assistant_messages[0]
+            if assistant_message.analysis_query_id is not None:
+                continue
+
+            candidates = list(
+                self.db.scalars(
+                    select(AnalysisQuery).where(
+                        AnalysisQuery.user_id == user.id,
+                        AnalysisQuery.status == "SUCCESS",
+                        AnalysisQuery.question == user_message.content,
+                        AnalysisQuery.created_at
+                        >= user_message.created_at - timedelta(minutes=15),
+                        AnalysisQuery.created_at <= user_message.created_at,
+                        AnalysisQuery.id.not_in(
+                            select(ChatAnalysisQuery.analysis_query_id)
+                        ),
+                    )
+                ).all()
+            )
+            candidates = [
+                item for item in candidates if item.id not in claimed_query_ids
+            ]
+            if len(candidates) == 1:
+                query = candidates[0]
+                assistant_message.analysis_query_link = ChatAnalysisQuery(
+                    analysis_query_id=query.id,
+                )
+                claimed_query_ids.add(query.id)
+                linked_legacy_query = True
+
+        if linked_legacy_query:
+            self._commit()
         return messages, encode_cursor(next_cursor) if next_cursor else None
 
     def _get_own_user_message(

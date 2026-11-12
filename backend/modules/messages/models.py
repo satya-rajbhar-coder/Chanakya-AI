@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum as PyEnum
 from typing import TYPE_CHECKING
@@ -11,6 +13,7 @@ from database.base import Base
 
 if TYPE_CHECKING:
     from modules.conversations.models import Conversation
+    from modules.intelligence.models import ChatAnalysisQuery
     from modules.users.models import User
 
 
@@ -70,6 +73,18 @@ class Message(Base):
     )
 
     user: Mapped[User] = relationship("User", back_populates="messages")
+    analysis_query_link: Mapped[ChatAnalysisQuery | None] = relationship(
+        "ChatAnalysisQuery",
+        back_populates="message",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def analysis_query_id(self) -> UUID | None:
+        if self.role != Role.ASSISTANT or self.analysis_query_link is None:
+            return None
+        return self.analysis_query_link.analysis_query_id
 
     __table_args__ = (
         Index(

@@ -12,6 +12,7 @@ export interface MessageResponse {
     conversation_id: string;
     role: MessageRole;
     content: string;
+    analysis_query_id?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -42,6 +43,32 @@ export const getAllConversationMessages = async ({
     );
 
     return response.data;
+}
+
+// Safety cap so a misbehaving cursor can never loop forever.
+const MAX_MESSAGE_PAGES = 1000
+
+export const getEntireConversationMessages = async (
+    conversation_id: string,
+): Promise<MessageResponse[]> => {
+    const messages: MessageResponse[] = []
+    let cursor: string | null = null
+    let pages = 0
+
+    do {
+        if (++pages > MAX_MESSAGE_PAGES) {
+            throw new Error("Conversation history is too large to load")
+        }
+        const page = await getAllConversationMessages({
+            conversation_id,
+            cursor,
+            limit: 100,
+        })
+        messages.push(...page.items)
+        cursor = page.next_cursor
+    } while (cursor)
+
+    return messages
 }
 
 export const sendMessage = async (

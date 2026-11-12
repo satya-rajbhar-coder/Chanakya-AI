@@ -12,6 +12,7 @@ from modules.analysis.models import Client
 from modules.users.models import User
 from rag.loader import SUPPORTED_EXTENSIONS, EmptyDocumentError, UnsupportedFileError
 from rag.service import delete_document_chunks, ingest_document
+
 from .models import Document
 from .repository import DocumentRepository
 

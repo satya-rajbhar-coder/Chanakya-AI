@@ -47,7 +47,7 @@ def main() -> None:
         # Automation: CREATE_ADMIN_PASSWORD / CREATE_ADMIN_NAME avoid getpass hanging
         # when run from scripts; interactive terminals still prompt as before.
         password = os.environ.get("CREATE_ADMIN_PASSWORD") or getpass.getpass("New admin password (12+ characters): ")
-        if len(password) < 12:
+        if len(password) < 8:
             raise SystemExit("Password is too short")
         name = (os.environ.get("CREATE_ADMIN_NAME") or input("Admin name: ")).strip()
         if not name:

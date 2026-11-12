@@ -68,3 +68,6 @@ export const setUserAssignments = async (userId: string, clientIds: string[]): P
 
 export const updateAdminUser = async (userId: string, data: AdminUserUpdate): Promise<AdminUser> =>
     (await api.patch<AdminUser>(`/admin/users/${userId}`, data)).data;
+
+export const deleteClient = async (clientId: string): Promise<void> =>
+    (await api.delete(`/admin/clients/${clientId}`)).data;

@@ -1,5 +1,4 @@
 import logging
-import threading
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -10,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from core.security import hash_password
 from modules.admin.repository import AdminRepository
-from modules.analysis.catalog import build_catalog
 from modules.analysis.registry import get_engine
 from modules.auth.repository import RefreshTokenRepository
 from modules.auth.services import AuthService
@@ -67,14 +65,8 @@ def _set_assignments(repo: AdminRepository, user: User, client_ids: list[UUID]) 
         repo.add_assignment(user.id, client_id)
 
 
-def list_clients(db: Session):
-    return AdminRepository(db).list_clients()
-
-
-def create_client(db: Session, data: dict):
-    repo = AdminRepository(db)
-    database_name = data["database_name"]
-
+def _validate_database(database_name: str) -> None:
+    """Validate that a client database is reachable and has tables."""
     try:
         engine = get_engine(database_name)
 
@@ -96,6 +88,22 @@ def create_client(db: Session, data: dict):
                 "credentials and driver in ANALYSIS_DB_URL_TEMPLATE."
             ),
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Client service
+# ---------------------------------------------------------------------------
+
+
+def list_clients(db: Session):
+    return AdminRepository(db).list_clients()
+
+
+def create_client(db: Session, data: dict):
+    repo = AdminRepository(db)
+    database_name = data["database_name"]
+
+    _validate_database(database_name)
 
     if repo.get_client_by_database_name(database_name):
         raise HTTPException(
@@ -122,12 +130,6 @@ def create_client(db: Session, data: dict):
             detail="Client code already exists",
         ) from exc
 
-    threading.Thread(
-        target=_build_catalog_safe,
-        args=(database_name,),
-        daemon=True,
-    ).start()
-
     return client
 
 
@@ -141,7 +143,26 @@ def update_client(db: Session, client_id: UUID, data: dict):
             detail="Client not found",
         )
 
-    for field in ("name", "description", "is_active"):
+    # Re-validate database if database_name is being changed
+    new_db = data.get("database_name")
+    if new_db is not None and new_db != client.database_name:
+        _validate_database(new_db)
+
+        if repo.get_client_by_database_name(new_db):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A database can only belong to one client",
+            )
+
+    if data.get("client_identifier") is not None:
+        new_id = data["client_identifier"]
+        if new_id != client.client_identifier and repo.get_client_by_identifier(new_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Client identifier already exists",
+            )
+
+    for field in ("name", "description", "is_active", "database_name", "client_identifier"):
         if data.get(field) is not None:
             setattr(client, field, data[field])
 
@@ -151,11 +172,27 @@ def update_client(db: Session, client_id: UUID, data: dict):
     return client
 
 
-def _build_catalog_safe(database_name: str) -> None:
+def delete_client(db: Session, client_id: UUID) -> None:
+    repo = AdminRepository(db)
+    client = repo.get_client(client_id)
+
+    if client is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client not found",
+        )
+
     try:
-        build_catalog(database_name)
+        repo.db.delete(client)
+        repo.commit()
     except Exception:
-        logger.exception("Catalog build failed for %s", database_name)
+        repo.rollback()
+        raise
+
+
+# ---------------------------------------------------------------------------
+# User service (admin side)
+# ---------------------------------------------------------------------------
 
 
 def list_users(db: Session):
@@ -219,6 +256,35 @@ def update_user(db: Session, user_id: UUID, data: dict, admin_id: UUID):
     repo.commit()
 
     return _account(repo, user)
+
+
+def delete_user(db: Session, user_id: UUID, admin_id: UUID) -> None:
+    repo = AdminRepository(db)
+    user = _get_user(repo, user_id)
+
+    if user.role == "admin" and user.id != admin_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts must be managed on the server",
+        )
+
+    if user.id == admin_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete yourself",
+        )
+
+    try:
+        repo.db.delete(user)
+        repo.commit()
+    except Exception:
+        repo.rollback()
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Assignment service
+# ---------------------------------------------------------------------------
 
 
 def assign_user(db: Session, user_id: UUID, client_ids: list[UUID]):

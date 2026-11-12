@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .models import Message
 
@@ -31,7 +31,11 @@ class MessageRepository:
         cursor: tuple[datetime, UUID] | None = None,
     ) -> tuple[list[Message], tuple[datetime, UUID] | None]:
         """Newest first. Returns (messages, cursor for the next older page)."""
-        stmt = select(Message).where(Message.conversation_id == conversation_id)
+        stmt = (
+            select(Message)
+            .options(selectinload(Message.analysis_query_link))
+            .where(Message.conversation_id == conversation_id)
+        )
 
         if cursor is not None:
             cursor_created_at, cursor_id = cursor

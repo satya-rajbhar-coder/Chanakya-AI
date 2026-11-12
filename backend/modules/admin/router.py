@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from api.dependencies import AdminUser
@@ -20,6 +20,8 @@ from modules.admin.services import (
     assign_user,
     create_client,
     create_user,
+    delete_client,
+    delete_user,
     list_clients,
     list_users,
     update_client,
@@ -49,6 +51,14 @@ def update_client_endpoint(
     return update_client(db, client_id, data.model_dump(exclude_unset=True))
 
 
+@router.delete("/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_client_endpoint(
+    client_id: UUID, admin: AdminUser, db: Session = Depends(get_db)
+):
+    delete_client(db, client_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/users", response_model=list[AccountResponse])
 def users(admin: AdminUser, db: Session = Depends(get_db)):
     return list_users(db)
@@ -66,6 +76,14 @@ def update_user_endpoint(
     user_id: UUID, data: AccountUpdate, admin: AdminUser, db: Session = Depends(get_db)
 ):
     return update_user(db, user_id, data.model_dump(exclude_unset=True), admin.id)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_endpoint(
+    user_id: UUID, admin: AdminUser, db: Session = Depends(get_db)
+):
+    delete_user(db, user_id, admin.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/users/{user_id}/assignments", response_model=AccountResponse)

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 
 import AdminPanel from "@/components/admin/AdminPanel"
-import { getSession } from "@/services/session"
+import { getSession } from "@/services/session.server"
 
 export default async function AdminPage() {
     const session = await getSession()

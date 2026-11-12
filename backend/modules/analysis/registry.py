@@ -32,9 +32,10 @@ def sqlglot_dialect(engine: Engine) -> str:
 
 
 def get_all_database_names() -> list[str]:
+    from sqlalchemy import select
+
     from database.session import SessionLocal
     from modules.analysis.models import Client
-    from sqlalchemy import select
 
     with SessionLocal() as session:
         names = session.scalars(

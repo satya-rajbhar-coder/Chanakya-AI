@@ -1,18 +1,4 @@
-// export const copyToClipboard = async (
-//     text: string
-// ): Promise<boolean> => {
-//     try {
-//         await navigator.clipboard.writeText(text)
-//         return true
-//     } catch {
-//         return false
-//     }
-// }
-
-
-export const copyToClipboard = async (
-    text: string
-): Promise<boolean> => {
+export const copyToClipboard = async (text: string): Promise<boolean> => {
     if (!text) {
         return false
     }

@@ -5,7 +5,6 @@ import { FileText, Settings } from "lucide-react"
 
 import { SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar"
 import { useWorkspace } from "@/components/workspace-provider"
-import { useDialogs } from "@/components/ui/dialog-provider"
 
 interface DocumentsPanelProps {
     isAdmin?: boolean
@@ -13,17 +12,19 @@ interface DocumentsPanelProps {
 
 export const DocumentsPanel = ({ isAdmin = false }: DocumentsPanelProps) => {
     const { documents } = useWorkspace()
-    const { confirm, alert } = useDialogs()
 
     return (
         <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-            <div className="flex items-center justify-between">
-                <SidebarGroupLabel className="text-sm">Documents</SidebarGroupLabel>
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                    <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                    <SidebarGroupLabel className="text-sm">Documents</SidebarGroupLabel>
+                </div>
 
                 {isAdmin && (
                     <Link
                         href="/admin"
-                        className="rounded-md p-1.5 hover:bg-accent"
+                        className="rounded-md p-1.5"
                         title="Manage documents"
                         aria-label="Manage documents"
                     >

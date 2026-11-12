@@ -58,9 +58,13 @@ export const WorkspaceProvider = ({
     }, [])
 
     useEffect(() => {
-        void refreshConversations()
-        void refreshDocuments()
-    }, [refreshConversations, refreshDocuments])
+        void getAllConversations().then(setConversations).catch((err) => {
+            console.error(getApiErrorMessage(err))
+        })
+        void getAllDocuments().then(setDocuments).catch((err) => {
+            console.error(getApiErrorMessage(err))
+        })
+    }, [])
 
     const removeConversation = useCallback(async (id: string) => {
         await deleteConversation(id)

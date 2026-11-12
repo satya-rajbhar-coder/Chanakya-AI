@@ -1,0 +1,3 @@
+2026-11-04 16:53:29 | WARNING | modules.analysis.service | Could not produce a working query for 'drop it': Only SELECT queries are allowed
+2026-11-04 17:02:20 | WARNING | modules.analysis.service | Could not produce a working query for 'drop it': Only SELECT queries are allowed
+2026-11-04 17:03:22 | WARNING | modules.analysis.service | Could not produce a working query for 'drop it': Only SELECT queries are allowed

@@ -1,5 +1,5 @@
-from contextlib import asynccontextmanager
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,12 +11,16 @@ from database.session import engine
 from rag.vector_store import init_vector_store
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    init_vector_store()
+    try:
+        init_vector_store()
+    except Exception as exc:  # pragma: no cover - startup resilience
+        logger.warning("Vector store initialization failed: %s", exc)
     yield
 
 
@@ -29,6 +33,7 @@ ALLOWED_ORIGINS = list(
             *(o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()),
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            "http://192.168.1.35:3000",
         ]
     )
 )

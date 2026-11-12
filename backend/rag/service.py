@@ -245,29 +245,85 @@ def _get_neighbor_chunks(
     ]
 
 
+def _keyword_search(document_ids: list[str], query: str, k: int) -> list[dict]:
+    """Full-text keyword search over document chunks using PostgreSQL FTS."""
+    table = _vector_table()
+    params: dict = {"q": query, "k": k}
+    id_clauses = []
+    for i, doc_id in enumerate(document_ids):
+        param_name = f"doc_id_{i}"
+        params[param_name] = doc_id
+        id_clauses.append(f":{param_name}")
+    id_list = ", ".join(id_clauses)
+
+    sql = text(f"""
+        SELECT document_id, chunk_index, content, filename, page, element_type,
+               ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :q)) AS rank
+        FROM "{table}"
+        WHERE document_id IN ({id_list})
+          AND to_tsvector('english', content) @@ plainto_tsquery('english', :q)
+        ORDER BY rank DESC
+        LIMIT :k
+        """)
+
+    with engine.connect() as conn:
+        rows = conn.execute(sql, params).mappings().all()
+
+    return [
+        {
+            "document_id": str(r["document_id"]),
+            "chunk_index": int(r["chunk_index"] or 0),
+            "content": r["content"],
+            "filename": r["filename"] or "document",
+            "page": _safe_int(r["page"]),
+            "element_type": r["element_type"] or "text",
+        }
+        for r in rows
+    ]
+
+
+def _rrf_combine(
+    vector_keys: list[tuple[str, int]],
+    keyword_keys: list[tuple[str, int]],
+    top_k: int,
+    rrf_k: int = 60,
+) -> list[tuple[str, int]]:
+    """Combine vector and keyword rankings via Reciprocal Rank Fusion."""
+    scores: dict[tuple[str, int], float] = {}
+    for rank, key in enumerate(vector_keys, start=1):
+        scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank)
+    for rank, key in enumerate(keyword_keys, start=1):
+        scores[key] = scores.get(key, 0.0) + 1.0 / (rrf_k + rank)
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    return [key for key, _ in ranked[:top_k]]
+
+
 def retrieve(
     document_ids: list[UUID],
     query: str,
     k: int | None = None,
     neighbor_window: int = DEFAULT_NEIGHBOR_WINDOW,
 ) -> list[RetrievedChunk]:
+    """Hybrid retrieval: vector similarity + full-text keyword search fused
+    with Reciprocal Rank Fusion, then neighbor-window expansion."""
     if not document_ids:
         return []
     store = get_pgvector_store()
     top_k = k if k is not None else settings.RETRIEVER_K
     visible = {str(doc_id) for doc_id in document_ids}
 
-    results = store.similarity_search_with_score(
+    # --- 1) Vector similarity pass ---
+    vector_results = store.similarity_search_with_score(
         query,
         k=top_k,
         filter={"document_id": {"$in": sorted(visible)}},
     )
-
-    final: list[RetrievedChunk] = []
-    seen: set[tuple[str, int]] = set()
-
-    for doc, distance in results:
-        distance = float(distance)
+    vector_keys: list[tuple[str, int]] = []
+    vector_meta: dict[tuple[str, int], dict] = {}
+    vector_distances: dict[tuple[str, int], float] = {}
+    for doc, raw_distance in vector_results:
+        distance = float(raw_distance)
         if (
             settings.RAG_MAX_DISTANCE is not None
             and distance > settings.RAG_MAX_DISTANCE
@@ -279,28 +335,75 @@ def retrieve(
         if document_id not in visible:
             continue
         chunk_index = _safe_int(metadata.get("chunk_index")) or 0
+        key = (document_id, chunk_index)
+        vector_keys.append(key)
+        vector_distances.setdefault(key, distance)
+        vector_meta.setdefault(
+            key,
+            {
+                "content": doc.page_content,
+                "filename": str(metadata.get("filename", "document")),
+                "page": _safe_int(metadata.get("page")),
+                "element_type": str(metadata.get("element_type", "text")),
+            },
+        )
+
+    # --- 2) Full-text keyword pass (hybrid boost) ---
+    keyword_keys: list[tuple[str, int]] = []
+    keyword_meta: dict[tuple[str, int], dict] = {}
+    try:
+        rows = _keyword_search(sorted(visible), query, top_k)
+        for row in rows:
+            key = (row["document_id"], row["chunk_index"])
+            keyword_keys.append(key)
+            keyword_meta.setdefault(key, row)
+    except Exception:
+        # Keyword search is a best-effort boost; never fail the whole retrieval.
+        logger.exception("Keyword search failed; continuing with vector-only results")
+
+    # --- 3) Reciprocal Rank Fusion ---
+    fused_keys = _rrf_combine(vector_keys, keyword_keys, top_k)
+
+    # --- 4) Build final chunks with neighbor-window expansion ---
+    final: list[RetrievedChunk] = []
+    seen: set[tuple[str, int]] = set()
+
+    def _meta_for(key: tuple[str, int]) -> dict | None:
+        return vector_meta.get(key) or keyword_meta.get(key)
+
+    for document_id, chunk_index in fused_keys:
+        if document_id not in visible:
+            continue
+        key = (document_id, chunk_index)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        meta = _meta_for(key)
+        if meta is None:
+            continue
 
         neighbors = _get_neighbor_chunks(
             document_id=document_id,
             chunk_index=chunk_index,
             window=neighbor_window,
-            distance=distance,
+            distance=vector_distances.get(key, 0.0),
         ) or [
             RetrievedChunk(
-                content=doc.page_content,
-                filename=str(metadata.get("filename", "document")),
-                page=_safe_int(metadata.get("page")),
-                distance=distance,
+                content=meta["content"],
+                filename=meta["filename"],
+                page=meta["page"],
+                distance=vector_distances.get(key, 0.0),
                 chunk_index=chunk_index,
-                element_type=str(metadata.get("element_type", "text")),
+                element_type=meta["element_type"],
             )
         ]
 
         for n in neighbors:
-            key = (document_id, n.chunk_index)
-            if key in seen:
+            nkey = (document_id, n.chunk_index)
+            if nkey in seen:
                 continue
-            seen.add(key)
+            seen.add(nkey)
             final.append(n)
 
     final.sort(key=lambda c: (c.filename, c.chunk_index))

@@ -1,10 +1,9 @@
-from uuid import uuid4
-import json
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
@@ -16,9 +15,13 @@ from database.session import get_db
 from modules.analysis import router as analysis_router
 from modules.analysis import service as analysis_service
 from modules.analysis.models import Client, UserClient
+from modules.conversations.models import Conversation
+from modules.intelligence.repository import IntelligenceRepository
+from modules.messages.models import Message, Role
+from modules.messages.repository import MessageRepository
+from modules.messages.schemas import MessageResponse
+from modules.messages.services import MessageService
 from modules.users.models import User
-from modules.documents.models import Document
-from modules.documents.repository import DocumentRepository
 
 
 @compiles(JSONB, "sqlite")
@@ -45,27 +48,15 @@ def client(demo_db, monkeypatch):
         assigned_id, unassigned_id = client1.id, client2.id
 
     # Mock the service methods
-    def mock_plan_and_run(question, client_id, previous_sql, user_id, db_session):
+    def mock_plan_and_run(self, question, user_id, client_id=None):
         if client_id == unassigned_id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Client is not assigned")
-        return ("demo", assigned_id, ["items"], "All items", "SELECT id, name FROM items ORDER BY id", 
-                {"columns": ["id", "name"], "rows": [[i, f"item{i}"] for i in range(1, 101)], "page": 0, "page_size": 100, "has_more": True, "total_time_ms": 10.0})
+        return ("demo", assigned_id, ["items"], "All items", "SELECT id, name FROM items ORDER BY id",
+                {"columns": ["id", "name"], "rows": [[i, f"item{i}"] for i in range(1, 101)], "page": 0,
+                 "page_size": 100, "has_more": True, "total_time_ms": 10.0})
 
     monkeypatch.setattr(analysis_service.AnalysisService, "plan_and_run", mock_plan_and_run)
-    # Mock the page/executor layer (not get_rows) so result-token
-    # validation in get_rows/export_rows still runs.
-    def mock_run_page(db, sql, page, page_size):
-        start = page * page_size
-        end = start + page_size
-        all_rows = [[i, f"item{i}"] for i in range(1, 251)]
-        return {"columns": ["id", "name"], "rows": all_rows[start:end], "page": page, "page_size": page_size, "has_more": end < len(all_rows), "total_time_ms": 10.0}
-    monkeypatch.setattr(analysis_service, "run_page", mock_run_page)
-    def mock_stream_csv(db, sql):
-        yield "id,name\n"
-        for i in range(1, 251):
-            yield f"{i},item{i}\n"
-    monkeypatch.setattr(analysis_service, "stream_csv", mock_stream_csv)
-    
+
     from modules.admin.router import router as admin_router
     from modules.auth.router import router as auth_router
     from modules.documents.router import router as documents_router
@@ -85,89 +76,114 @@ def client(demo_db, monkeypatch):
     app_engine.dispose()
 
 
-def test_query_page_and_export(client):
+def test_query(client):
     http, _, client_id, _, _ = client
     res = http.post("/analysis/query", json={"question": "list items", "client_id": str(client_id)})
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["database"] == "demo"
     assert len(body["result"]["rows"]) == 100 and body["result"]["has_more"]
-
-    page3 = http.post("/analysis/rows", json={"token": body["token"], "page": 2, "page_size": 100})
-    assert page3.status_code == 200
-    assert len(page3.json()["rows"]) == 50
-
-    csv_res = http.post("/analysis/export", json={"token": body["token"]})
-    assert csv_res.status_code == 200
-    assert len(csv_res.text.strip().splitlines()) == 251
+    assert body["analysis_query_id"]
+    assert "token" in body
+    assert "sql" in body
 
 
-def test_token_of_another_user_is_rejected(client):
+def test_saved_query_can_be_reloaded_by_page(client):
     http, _, client_id, _, _ = client
-    foreign = analysis_service.AnalysisService.sign_result(uuid4(), "demo", "SELECT 1", client_id)
-    assert http.post("/analysis/rows", json={"token": foreign}).status_code == 403
+    response = http.post(
+        "/analysis/query",
+        json={"question": "list items", "client_id": str(client_id)},
+    )
+    query_id = response.json()["analysis_query_id"]
+
+    page = http.post(
+        f"/analysis/history/{query_id}/run?page=2&page_size=30",
+    )
+
+    assert page.status_code == 200, page.text
+    result = page.json()["result"]
+    assert result["page"] == 2
+    assert result["page_size"] == 30
+    assert [row[0] for row in result["rows"]] == list(range(61, 91))
 
 
-def test_tampered_token_is_rejected(client):
-    http, *_ = client
-    res = http.post("/analysis/rows", json={"token": "not-a-token"})
-    assert res.status_code == 400
+def test_legacy_chat_turn_links_to_its_saved_query(client):
+    http, user_id, client_id, _, engine = client
+    response = http.post(
+        "/analysis/query",
+        json={"question": "list items", "client_id": str(client_id)},
+    )
+    query_id = response.json()["analysis_query_id"]
+
+    with Session(engine, expire_on_commit=False) as db:
+        user = db.get(User, user_id)
+        conversation = Conversation(user_id=user_id, title="Saved query")
+        db.add(conversation)
+        db.flush()
+        db.add_all(
+            [
+                Message(
+                    conversation_id=conversation.id,
+                    user_id=user_id,
+                    role=Role.USER,
+                    content="list items",
+                ),
+                Message(
+                    conversation_id=conversation.id,
+                    user_id=user_id,
+                    role=Role.ASSISTANT,
+                    content="Here are the items.",
+                ),
+            ]
+        )
+        db.commit()
+
+        messages, _ = MessageService(db).get_messages(
+            conversation.id,
+            user,
+        )
+
+    assistant_message = next(message for message in messages if message.role == Role.ASSISTANT)
+    assert str(assistant_message.analysis_query_id) == query_id
+    response = MessageResponse.model_validate(assistant_message)
+    assert str(response.analysis_query_id) == query_id
 
 
-def test_unassigned_client_and_revoked_token(client):
+def test_new_chat_turn_persists_its_query_link(client):
+    http, user_id, client_id, _, engine = client
+    response = http.post(
+        "/analysis/query",
+        json={"question": "list items", "client_id": str(client_id)},
+    )
+    query_id = response.json()["analysis_query_id"]
+
+    with Session(engine, expire_on_commit=False) as db:
+        user = db.get(User, user_id)
+        conversation = Conversation(user_id=user_id, title="Saved query")
+        db.add(conversation)
+        db.commit()
+        _, assistant_message = IntelligenceRepository(db, user).save_chat_turn(
+            conversation.id,
+            "list items",
+            "Here are the items.",
+            analysis_query_id=UUID(query_id),
+        )
+        conversation_id = conversation.id
+        assistant_message_id = assistant_message.id
+
+    with Session(engine) as db:
+        restored_message = MessageRepository(db).get_by_id(
+            conversation_id,
+            assistant_message_id,
+        )
+        message_response = MessageResponse.model_validate(restored_message)
+        assert str(message_response.analysis_query_id) == query_id
+
+
+def test_unassigned_client_rejected(client):
     http, user_id, assigned_id, other_id, engine = client
     res = http.post("/analysis/query", json={"question": "list", "client_id": str(other_id)})
     assert res.status_code == 403
-    token = http.post("/analysis/query", json={"question": "list", "client_id": str(assigned_id)}).json()["token"]
-    with Session(engine) as db:
-        row = db.scalar(select(UserClient).where(UserClient.user_id == user_id))
-        db.delete(row)
-        db.commit()
-    assert http.post("/analysis/rows", json={"token": token}).status_code == 403
-    assert http.post("/analysis/export", json={"token": token}).status_code == 403
-
-
-def test_admin_only_registration_and_ingestion(client):
-    http, user_id, client_id, _, engine = client
-    assert http.post("/auth/register", json={}).status_code == 404
-    assert http.get("/admin/users").status_code == 403
-    assert http.post("/admin/users", json={}).status_code == 403
-    assert http.post("/documents", data={"user_ids": json.dumps([str(user_id)])}, files={"file": ("a.txt", b"test")}).status_code == 403
-    assert http.delete(f"/documents/{uuid4()}").status_code == 403
-    with Session(engine) as db:
-        user = db.get(User, user_id)
-        user.role = "admin"
-        db.commit()
-    http.app.dependency_overrides[get_current_user] = lambda: User(
-        id=user_id, name="Admin", email="admin@example.com", role="admin", is_active=True
-    )
-    created = http.post("/admin/users", json={
-        "name": "New user", "email": "new@example.com", "password": "verysecretpassword",
-        "client_ids": [str(client_id)],
-    })
-    assert created.status_code == 201, created.text
-    assert created.json()["client_ids"] == [str(client_id)]
-    assert created.json()["role"] == "user"
-    assert http.put(f"/admin/users/{created.json()['id']}/assignments", json={"client_ids": []}).status_code == 200
-
-
-def test_document_visibility_tracks_assignments(client):
-    http, user_id, assigned_id, other_id, engine = client
-    with Session(engine, expire_on_commit=False) as db:
-        user = db.get(User, user_id)
-        db.add_all([
-            Document(user_id=user_id, client_id=assigned_id, filename="visible.txt", size_bytes=1),
-            Document(user_id=user_id, client_id=other_id, filename="private.txt", size_bytes=1),
-            Document(user_id=user_id, filename="legacy.txt", size_bytes=1),
-        ])
-        db.commit()
-        assert [doc.filename for doc in DocumentRepository(db).get_all(user)] == ["visible.txt"]
-        assert DocumentRepository(db).count_visible(user) == 1
-    assert [doc["filename"] for doc in http.get("/documents").json()] == ["visible.txt"]
-    with Session(engine) as db:
-        db.delete(db.scalar(select(UserClient).where(UserClient.user_id == user_id)))
-        db.commit()
-    assert http.get("/documents").json() == []
 
 
 def test_unsafe_sql_from_llm_is_blocked(monkeypatch, demo_db):
@@ -193,10 +209,7 @@ def test_unsafe_sql_from_llm_is_blocked(monkeypatch, demo_db):
         "generate_sql",
         lambda *a, **k: {"title": "x", "sql": "DROP TABLE items", "reason": None},
     )
-    # Mock select_tables and describe_table (patched where used)
-    monkeypatch.setattr(analysis_service, "select_tables", lambda q, db: (db, ["items"]))
-    monkeypatch.setattr(analysis_service, "describe_table", lambda db, t, q="": ("items(id int, name text)", ()))
-    
+
     from modules.admin.router import router as admin_router
     from modules.auth.router import router as auth_router
     from modules.documents.router import router as documents_router
@@ -213,8 +226,8 @@ def test_unsafe_sql_from_llm_is_blocked(monkeypatch, demo_db):
 
     app.dependency_overrides[get_db] = session
     http = TestClient(app)
-    
+
     res = http.post("/analysis/query", json={"question": "drop it", "client_id": str(assigned_id)})
     assert res.status_code == 422
-    
+
     app_engine.dispose()

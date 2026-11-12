@@ -7,6 +7,7 @@ os.environ.setdefault("GROQ_API_KEY", "dummy")
 os.environ.setdefault("GOOGLE_API_KEY", "dummy")
 os.environ.setdefault("GOOGLE_EMBEDDING_MODEL", "models/gemini-embedding-001")
 os.environ.setdefault("VECTOR_STORE_URL", "postgresql+asyncpg://x:x@localhost/x")
+os.environ.setdefault("ANALYSIS_DB_URL_TEMPLATE", "sqlite:///./test_{name}.db")
 
 import pytest
 import sqlalchemy as sa
@@ -34,3 +35,4 @@ def demo_db(tmp_path):
     yield "demo"
     settings.ANALYSIS_DB_URL_TEMPLATE = previous_template
     registry.get_engine.cache_clear()
+

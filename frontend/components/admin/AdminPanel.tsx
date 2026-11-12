@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { FormEvent, ReactNode } from "react"
-import { Loader2, Trash2 } from "lucide-react"
+import { Loader2, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,17 +11,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useWorkspace } from "@/components/workspace-provider"
 import { useDialogs } from "@/components/ui/dialog-provider"
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 import {
     AdminUser,
     Client,
     createAdminUser,
     createClient,
+    deleteClient,
     listAdminClients,
     listAdminUsers,
     setUserAssignments,
     updateAdminUser,
-    updateClient,
 } from "@/services/admin"
 import {
     ACCEPTED_FILES,
@@ -31,10 +37,13 @@ import {
     uploadDocument,
 } from "@/services/documents"
 import { getApiErrorMessage } from "@/services/error"
+import { mapWithConcurrency } from "@/lib/utils"
+import {
+    adminListHistory,
+    deleteHistory,
+    type AdminHistoryItem,
+} from "@/services/analysis"
 
-/* ------------------------------------------------------------------ */
-/* Shared pieces                                                       */
-/* ------------------------------------------------------------------ */
 
 const Message = ({ error, success }: { error?: string | null; success?: string | null }) => (
     <>
@@ -54,11 +63,7 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
     </label>
 )
 
-const Section = ({
-    title,
-    description,
-    children,
-}: {
+const Section = ({ title, description, children }: {
     title: string
     description: string
     children: ReactNode
@@ -79,7 +84,6 @@ const tableHeadClass =
 
 const tableCellClass = "whitespace-nowrap px-3 py-2.5 text-sm"
 
-/* ------------------------------------------------------------------ */
 
 const clientLabel = (c: Client) => `${c.code} · ${c.name}`
 
@@ -103,7 +107,7 @@ const ClientPicker = ({ clients, selected, onChange, disabled }: ClientPickerPro
             {clients.map((c) => (
                 <label
                     key={c.id}
-                    className="flex cursor-pointer items-center gap-2.5 rounded px-2 py-1.5 text-sm hover:bg-accent"
+                    className="flex cursor-pointer items-center gap-2.5 rounded px-2 py-1.5 text-sm"
                 >
                     <input
                         type="checkbox"
@@ -122,14 +126,8 @@ const ClientPicker = ({ clients, selected, onChange, disabled }: ClientPickerPro
     )
 }
 
-/* ------------------------------------------------------------------ */
-/* Clients                                                             */
-/* ------------------------------------------------------------------ */
 
-const ClientsSection = ({
-    clients,
-    onCreated,
-}: {
+const ClientsSection = ({ clients, onCreated }: {
     clients: Client[]
     onCreated: () => Promise<void>
 }) => {
@@ -139,8 +137,10 @@ const ClientsSection = ({
     const [clientIdentifier, setClientIdentifier] = useState("")
     const [description, setDescription] = useState("")
     const [saving, setSaving] = useState(false)
+    const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState<string | null>(null)
+    const { confirm } = useDialogs()
 
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -172,6 +172,32 @@ const ClientsSection = ({
             setError(getApiErrorMessage(err))
         } finally {
             setSaving(false)
+        }
+    }
+
+    const handleDeleteClient = async (clientId: string, clientName: string) => {
+        const approved = await confirm({
+            title: "Delete client?",
+            description: `"${clientName}" and its database assignment will be permanently removed. This action cannot be undone.`,
+            confirmLabel: "Delete",
+            destructive: true,
+        })
+
+        if (!approved) {
+            return
+        }
+
+        setBusy(true)
+        setError(null)
+        setSuccess(null)
+        try {
+            await deleteClient(clientId)
+            setSuccess(`Client deleted`)
+            await onCreated()
+        } catch (err) {
+            setError(getApiErrorMessage(err))
+        } finally {
+            setBusy(false)
         }
     }
 
@@ -231,13 +257,13 @@ const ClientsSection = ({
                     <tbody>
                         {clients.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
                                     No clients yet.
                                 </td>
                             </tr>
                         ) : (
                             clients.map((c) => (
-                                <tr key={c.id} className="border-t hover:bg-muted/30">
+                                <tr key={c.id} className="border-t">
                                     <td className={`${tableCellClass} font-mono`}>{c.code}</td>
                                     <td className={tableCellClass}>{c.name}</td>
                                     <td className={`${tableCellClass} font-mono`}>{c.client_identifier}</td>
@@ -246,6 +272,23 @@ const ClientsSection = ({
                                         <Badge variant={c.is_active ? "success" : "secondary"}>
                                             {c.is_active ? "Active" : "Inactive"}
                                         </Badge>
+                                    </td>
+                                    <td className={tableCellClass}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => handleDeleteClient(c.id, c.name)}
+                                                    disabled={busy}
+                                                    className="text-destructive"
+                                                    aria-label={`Delete ${c.name}`}
+                                                >
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="left">Delete client</TooltipContent>
+                                        </Tooltip>
                                     </td>
                                 </tr>
                             ))
@@ -257,16 +300,8 @@ const ClientsSection = ({
     )
 }
 
-/* ------------------------------------------------------------------ */
-/* Users                                                               */
-/* ------------------------------------------------------------------ */
 
-const UserRow = ({
-    user,
-    clients,
-    isSelf,
-    onChanged,
-}: {
+const UserRow = ({ user, clients, isSelf, onChanged }: {
     user: AdminUser
     clients: Client[]
     isSelf: boolean
@@ -313,7 +348,7 @@ const UserRow = ({
     }
 
     return (
-        <tr className="border-t align-top hover:bg-muted/30">
+        <tr className="border-t align-top">
             <td className="px-3 py-3">
                 <p className="text-sm font-medium">{user.name}</p>
                 <p className="text-xs text-muted-foreground">{user.email}</p>
@@ -553,25 +588,32 @@ const DocumentsSection = ({
         }
 
         const errors: string[] = []
-        let ok = 0
+        let done = 0
 
-        for (const file of files) {
-            setUploadingName(file.name)
+        // Upload with limited concurrency: sequential awaits made multi-file
+        // uploads needlessly slow, while unbounded Promise.all can overwhelm
+        // the browser/server with large PDFs.
+        const fileCount = files.length
+
+        await mapWithConcurrency(files, 3, async (file) => {
             try {
                 await uploadDocument(file, userIds)
-                ok += 1
             } catch (err) {
                 errors.push(`${file.name}: ${getApiErrorMessage(err)}`)
+            } finally {
+                done += 1
+                setUploadingName(`${done}/${files.length}`)
             }
-        }
+        })
 
         setUploadingName(null)
-        setFiles([])
         if (fileRef.current) fileRef.current.value = ""
 
+        const ok = fileCount - errors.length
         if (ok > 0) setSuccess(`Uploaded ${ok} ${ok === 1 ? "document" : "documents"}`)
         if (errors.length > 0) setError(errors.join(" "))
 
+        setFiles([])
         await onChanged()
     }
 
@@ -609,7 +651,7 @@ const DocumentsSection = ({
                         {users.map((user) => (
                             <label
                                 key={user.id}
-                                className="flex cursor-pointer items-center gap-2.5 rounded px-2 py-1.5 text-sm hover:bg-accent"
+                                className="flex cursor-pointer items-center gap-2.5 rounded px-2 py-1.5 text-sm"
                             >
                                 <input
                                     type="checkbox"
@@ -645,8 +687,8 @@ const DocumentsSection = ({
                     <div className="flex flex-col gap-3">
                         {uploading && (
                             <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Loader2 className="size-4 animate-spin" />
-                                Indexing {uploadingName}… large PDFs can take a minute.
+                                <Loader2 className="size-4" />
+                                Uploading {uploadingName}… large PDFs can take a minute.
                             </p>
                         )}
                         <Message error={error} success={success} />
@@ -686,7 +728,7 @@ const DocumentsSection = ({
                                         .join(", ") || "—"
 
                                 return (
-                                    <tr key={doc.id} className="border-t hover:bg-muted/30">
+                                    <tr key={doc.id} className="border-t">
                                         <td className="max-w-xs truncate px-3 py-2.5 text-sm" title={doc.filename}>
                                             {doc.filename}
                                         </td>
@@ -701,7 +743,7 @@ const DocumentsSection = ({
                                             <button
                                                 type="button"
                                                 onClick={() => handleDelete(doc)}
-                                                className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive"
+                                                className="rounded p-1.5 text-muted-foreground"
                                                 aria-label={`Delete ${doc.filename}`}
                                             >
                                                 <Trash2 className="size-4" />
@@ -720,14 +762,138 @@ const DocumentsSection = ({
 
 /* ------------------------------------------------------------------ */
 
+const QueryHistorySection = ({
+    history,
+    loading,
+    onRefresh,
+    onDelete,
+}: {
+    history: AdminHistoryItem[]
+    loading: boolean
+    onRefresh: () => Promise<void>
+    onDelete: (id: string) => Promise<void>
+}) => {
+    const { confirm } = useDialogs()
+    const [showSql, setShowSql] = useState<string | null>(null)
+
+    if (loading) {
+        return (
+            <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
+                <Loader2 className="size-4" />
+                Loading query history...
+            </div>
+        )
+    }
+
+    return (
+        <Section
+            title="Query History"
+            description="All analysis queries executed by users. SQL is visible only to admins."
+        >
+            <div className="flex items-center justify-between">
+                <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+                    <Loader2 className="size-4 mr-2 animate-spin" />
+                    Refresh
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                    {history.length} query{history.length !== 1 ? "s" : ""}
+                </span>
+            </div>
+
+            {history.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No queries yet.</p>
+            ) : (
+                <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full">
+                        <thead className="bg-muted/50">
+                            <tr>
+                                <th className={tableHeadClass}>Title / Question</th>
+                                <th className={tableHeadClass}>Database</th>
+                                <th className={tableHeadClass}>Rows</th>
+                                <th className={tableHeadClass}>Created</th>
+                                <th className={tableHeadClass}>SQL</th>
+                                <th className={tableHeadClass} />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {history.map((item) => (
+                                <tr key={item.id} className="border-t">
+                                    <td className="max-w-xs truncate px-3 py-2.5 text-sm" title={item.question}>
+                                        <p className="font-medium truncate">{item.title || item.question}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{item.question}</p>
+                                    </td>
+                                    <td className={tableCellClass}>{item.database}</td>
+                                    <td className={tableCellClass}>{item.row_count ?? "—"}</td>
+                                    <td className={tableCellClass}>
+                                        {new Date(item.created_at).toLocaleString()}
+                                    </td>
+                                    <td className={tableCellClass}>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setShowSql(item.id === showSql ? null : item.id)}
+                                            className="text-xs"
+                                        >
+                                            {showSql === item.id ? "Hide SQL" : "Show SQL"}
+                                        </Button>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                            onClick={async () => {
+                                                const approved = await confirm({
+                                                    title: "Delete query history?",
+                                                    description: "This query record will be removed.",
+                                                    confirmLabel: "Delete",
+                                                    destructive: true,
+                                                })
+                                                if (approved) {
+                                                    await onDelete(item.id)
+                                                }
+                                            }}
+                                            aria-label="Delete"
+                                        >
+                                            <Trash2 className="size-3.5" />
+                                        </Button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {showSql && (
+                <div className="mt-4 rounded-xl border border-border/50 bg-muted/50 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-medium text-foreground">SQL Query</h3>
+                        <Button variant="ghost" size="sm" onClick={() => setShowSql(null)}>
+                            <X className="size-3.5" />
+                        </Button>
+                    </div>
+                    <pre className="p-3 rounded bg-muted text-xs font-mono overflow-x-auto max-h-96 overflow-y-auto">
+                        {history.find(h => h.id === showSql)?.sql || ""}
+                    </pre>
+                </div>
+            )}
+        </Section>
+    )
+}
+
+/* ------------------------------------------------------------------ */
+
 const AdminPanel = ({ currentUserId }: { currentUserId: string }) => {
     const { refreshDocuments: refreshSidebarDocuments } = useWorkspace()
 
     const [clients, setClients] = useState<Client[]>([])
     const [users, setUsers] = useState<AdminUser[]>([])
     const [documents, setDocuments] = useState<DocumentResponse[]>([])
+    const [queryHistory, setQueryHistory] = useState<AdminHistoryItem[]>([])
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState<string | null>(null)
+    const [queryHistoryLoading, setQueryHistoryLoading] = useState(false)
 
     const loadClients = useCallback(async () => {
         setClients(await listAdminClients())
@@ -742,7 +908,27 @@ const AdminPanel = ({ currentUserId }: { currentUserId: string }) => {
         await refreshSidebarDocuments()
     }, [refreshSidebarDocuments])
 
-    useEffect(() => {
+    const loadQueryHistory = useCallback(async () => {
+        setQueryHistoryLoading(true)
+        try {
+                const history = await adminListHistory()
+            setQueryHistory(history)
+        } catch (err) {
+            console.error("Failed to load query history:", err)
+        } finally {
+            setQueryHistoryLoading(false)
+        }
+    }, [])
+
+        const handleDeleteHistory = async (id: string) => {
+            await deleteHistory(id)
+            await loadQueryHistory()
+        }
+
+        const handleUserChanged = (updated: AdminUser) =>
+            setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
+
+        useEffect(() => {
         Promise.all([listAdminClients(), listAdminUsers(), getAllDocuments()])
             .then(([clientList, userList, documentList]) => {
                 setClients(clientList)
@@ -753,64 +939,85 @@ const AdminPanel = ({ currentUserId }: { currentUserId: string }) => {
             .finally(() => setLoading(false))
     }, [])
 
-    const handleUserChanged = (updated: AdminUser) =>
-        setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
+    useEffect(() => {
+            let active = true
+                const load = async () => {
+                    await loadQueryHistory()
+                    if (!active) return
+                }
+                load()
+                return () => {
+                    active = false
+                }
+            }, [loadQueryHistory])
 
     return (
-        <div className="min-h-0 flex-1 overflow-y-auto bg-transparent">
-            <div className="mx-auto w-full max-w-6xl p-6 md:p-8">
-                <div className="mb-6">
-                    <h1 className="text-xl font-semibold tracking-tight">Administration</h1>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                        Manage clients, users and document access.
-                    </p>
-                </div>
-
-                {loading ? (
-                    <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" />
-                        Loading
+        <TooltipProvider>
+            <div className="min-h-0 flex-1 overflow-y-auto bg-transparent">
+                <div className="mx-auto w-full max-w-6xl p-6 md:p-8">
+                    <div className="mb-6">
+                        <h1 className="text-xl font-semibold tracking-tight">Administration</h1>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            Manage clients, users and document access.
+                        </p>
                     </div>
-                ) : (
-                    <>
-                        <Message error={loadError} />
 
-                        <Tabs defaultValue="clients" className="flex flex-col gap-4">
-                            <TabsList className="w-fit">
-                                <TabsTrigger value="clients">Clients</TabsTrigger>
-                                <TabsTrigger value="users">Users</TabsTrigger>
-                                <TabsTrigger value="documents">Documents</TabsTrigger>
-                            </TabsList>
+                    {loading ? (
+                        <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
+                            <Loader2 className="size-4" />
+                            Loading
+                        </div>
+                    ) : (
+                        <>
+                            <Message error={loadError} />
 
-                            <TabsContent value="clients">
-                                <ClientsSection
-                                    clients={clients}
-                                    onCreated={loadClients}
-                                />
-                            </TabsContent>
+                            <Tabs defaultValue="clients" className="flex flex-col gap-4">
+                                <TabsList className="w-fit">
+                                    <TabsTrigger value="clients">Clients</TabsTrigger>
+                                    <TabsTrigger value="users">Users</TabsTrigger>
+                                    <TabsTrigger value="documents">Documents</TabsTrigger>
+                                                                    <TabsTrigger value="query-history">Query History</TabsTrigger>
+                                                                </TabsList>
 
-                            <TabsContent value="users">
-                                <UsersSection
-                                    users={users}
-                                    clients={clients}
-                                    currentUserId={currentUserId}
-                                    onCreated={loadUsers}
-                                    onChanged={handleUserChanged}
-                                />
-                            </TabsContent>
+                                                                <TabsContent value="clients">
+                                                                    <ClientsSection
+                                                                        clients={clients}
+                                                                        onCreated={loadClients}
+                                                                    />
+                                                                </TabsContent>
 
-                            <TabsContent value="documents">
-                                <DocumentsSection
-                                    documents={documents}
-                                    users={users}
-                                    onChanged={loadDocuments}
-                                />
-                            </TabsContent>
-                        </Tabs>
-                    </>
-                )}
+                                                                <TabsContent value="users">
+                                                                    <UsersSection
+                                                                        users={users}
+                                                                        clients={clients}
+                                                                        currentUserId={currentUserId}
+                                                                        onCreated={loadUsers}
+                                                                        onChanged={handleUserChanged}
+                                                                    />
+                                                                </TabsContent>
+
+                                                                <TabsContent value="documents">
+                                                                    <DocumentsSection
+                                                                        documents={documents}
+                                                                        users={users}
+                                                                        onChanged={loadDocuments}
+                                                                    />
+                                                                </TabsContent>
+
+                                                                <TabsContent value="query-history">
+                                                                    <QueryHistorySection
+                                                                        history={queryHistory}
+                                                                        loading={queryHistoryLoading}
+                                                                        onRefresh={loadQueryHistory}
+                                                                                                                                        onDelete={handleDeleteHistory}
+                                                                                                                                    />
+                                                                                                                                </TabsContent>
+                            </Tabs>
+                        </>
+                    )}
+                </div>
             </div>
-        </div>
+        </TooltipProvider>
     )
 }
 

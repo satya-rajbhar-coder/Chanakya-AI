@@ -23,6 +23,7 @@ class MessageResponse(BaseModel):
     conversation_id: UUID
     role: Role
     content: str
+    analysis_query_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 

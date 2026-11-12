@@ -1,6 +1,6 @@
 "use client"
 
-import { LogOut, SquarePen, Trash2, Moon, Sun, ShieldCheck, Bot } from "lucide-react"
+import { LogOut, SquarePen, Trash2, Moon, Sun, ShieldCheck, Menu, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 
@@ -19,7 +19,6 @@ import {
 
 import { useTheme } from "next-themes"
 
-import { DocumentsPanel } from "@/components/documents-panel"
 import { useWorkspace } from "@/components/workspace-provider"
 
 import { logout, UserResponse } from "@/services/auth"
@@ -81,6 +80,15 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
     }
 
     const handleLogout = async () => {
+        const approved = await confirm({
+            title: "Log out?",
+            description: "You will be signed out and returned to the login page.",
+            confirmLabel: "Log out",
+            destructive: true,
+        })
+        if (!approved) {
+            return
+        }
         try {
             await logout()
         } catch (error) {
@@ -99,17 +107,13 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
         <TooltipProvider>
             <Sidebar collapsible="icon">
                 <SidebarHeader>
-                    <div className="flex items-center justify-between p-3">
+                    <div className="flex items-center justify-between group-data-[collapsible=icon]:justify-center p-3">
                         <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25">
-                                <Bot className="h-5 w-5 text-white" />
-                            </div>
                             <span className="text-lg font-bold group-data-[collapsible=icon]:hidden">
                                 Chanakya AI
                             </span>
                         </div>
-
-                        <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
+                        <SidebarTrigger />
                     </div>
                 </SidebarHeader>
 
@@ -117,33 +121,41 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
                     <SidebarGroup>
                         <SidebarMenu>
                             <SidebarMenuItem>
-                                <Tooltip>
-                                    <SidebarMenuButton onClick={handleNewChat} className="gap-3">
-                                        <SquarePen className="h-4 w-4" />
-                                        <span className="group-data-[collapsible=icon]:hidden">New Chat</span>
-                                    </SidebarMenuButton>
-                                    <TooltipContent side="right" className="tooltip-premium">Start new conversation</TooltipContent>
-                                </Tooltip>
+                                <SidebarMenuButton
+                                    onClick={handleNewChat}
+                                    className="gap-3"
+                                >
+                                    <SquarePen className="h-4 w-4" />
+                                    <span className="group-data-[collapsible=icon]:hidden">
+                                        New Chat
+                                    </span>
+                                </SidebarMenuButton>
                             </SidebarMenuItem>
 
                             {isAdmin && (
                                 <SidebarMenuItem>
-                                    <Tooltip>
-                                        <Link href="/admin" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-accent transition-colors">
+                                    <SidebarMenuButton>
+                                        <Link
+                                            href="/admin"
+                                            className="flex w-full items-center gap-3"
+                                        >
                                             <ShieldCheck className="h-4 w-4" />
-                                            <span className="group-data-[collapsible=icon]:hidden">Admin Panel</span>
+                                            <span className="group-data-[collapsible=icon]:hidden">
+                                                Admin Panel
+                                            </span>
                                         </Link>
-                                        <TooltipContent side="right" className="tooltip-premium">Administration</TooltipContent>
-                                    </Tooltip>
+                                    </SidebarMenuButton>
                                 </SidebarMenuItem>
                             )}
                         </SidebarMenu>
                     </SidebarGroup>
 
-                    <DocumentsPanel isAdmin={isAdmin} />
 
                     <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-                        <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">Conversations</SidebarGroupLabel>
+                        <div className="flex items-center gap-1.5 px-2 py-1">
+                            <MessageCircle className="size-3 shrink-0 text-muted-foreground" />
+                            <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Conversations</SidebarGroupLabel>
+                        </div>
 
                         <SidebarMenu>
                             {conversations.length === 0 ? (
@@ -158,30 +170,24 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
                                         <SidebarMenuItem key={conversation.id}>
                                             <div
                                                 className={cn(
-                                                    "group/chat flex w-full items-center gap-1 rounded-md pr-1 transition-colors",
+                                                    "group/chat flex w-full items-center gap-1 rounded-md pr-1",
                                                     isActive
                                                         ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                                        : "hover:bg-sidebar-accent/60"
+                                                        : ""
                                                 )}
                                             >
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleConversationClick(conversation.id)}
-                                                            className="min-w-0 flex-1 truncate rounded-md px-2 py-2 text-left text-sm outline-none"
-                                                        >
-                                                            {conversation.title}
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="right" className="tooltip-premium">
-                                                        {isActive ? "Current conversation" : "Open conversation"}
-                                                    </TooltipContent>
-                                                </Tooltip>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationClick(conversation.id)}
+                                                    className="min-w-0 flex-1 truncate rounded-md px-2 py-2 text-left text-sm outline-none"
+                                                >
+                                                    {conversation.title}
+                                                </button>
+
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="size-6 shrink-0 text-destructive opacity-0 transition-opacity group-hover/chat:opacity-100"
+                                                    className="size-6 shrink-0 text-destructive"
                                                     onClick={(event) => handleDeleteConversation(event, conversation.id, conversation.title)}
                                                     aria-label={`Delete ${conversation.title}`}
                                                 >
@@ -197,26 +203,38 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
                 </SidebarContent>
 
                 <SidebarFooter>
-                    {user && (
-                        <div
-                            className="px-3 py-2 group-data-[collapsible=icon]:hidden"
-                        >
-                            <p className="truncate text-sm font-medium">{user.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                            {isAdmin && (
-                                <Badge variant="secondary" className="mt-1 w-fit gap-1">
-                                    <ShieldCheck className="h-2.5 w-2.5" />
-                                    Admin
-                                </Badge>
-                            )}
-                        </div>
-                    )}
+                    <div className="flex flex-col gap-2 px-2 py-2">
+                        {user && (
+                            <div
+                                className={cn(
+                                    "flex items-center gap-2 rounded-lg px-2 py-1.5",
+                                    "group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-1",
+                                    "group-data-[collapsible=icon]:flex"
+                                )}
+                            >
+                                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium">
+                                    {user.name?.charAt(0).toUpperCase() || 'U'}
+                                </div>
+                                <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+                                    <p className="truncate text-sm font-medium">{user.name}</p>
+                                    <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                                    {isAdmin && (
+                                        <Badge variant="secondary" className="mt-1 w-fit gap-1">
+                                            <ShieldCheck className="h-2.5 w-2.5" />
+                                            Admin
+                                        </Badge>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
-                    <div className="flex flex-col gap-1 px-2">
-                        <Tooltip>
+                        <div className="flex flex-col gap-1">
                             <Button
                                 variant="ghost"
-                                className="w-full justify-start gap-3"
+                                className={cn(
+                                    "w-full justify-start gap-3",
+                                    "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+                                )}
                                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                             >
                                 {theme === "dark" ? (
@@ -228,20 +246,19 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
                                     {theme === "dark" ? "Dark mode" : "Light mode"}
                                 </span>
                             </Button>
-                            <TooltipContent side="right" className="tooltip-premium">Toggle theme</TooltipContent>
-                        </Tooltip>
 
-                        <Tooltip>
                             <Button
                                 variant="ghost"
-                                className="w-full justify-start gap-3 text-destructive hover:bg-destructive/10"
+                                className={cn(
+                                    "w-full justify-start gap-3 text-destructive",
+                                    "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+                                )}
                                 onClick={handleLogout}
                             >
                                 <LogOut className="h-4 w-4" />
                                 <span className="group-data-[collapsible=icon]:hidden">Log out</span>
                             </Button>
-                            <TooltipContent side="right" className="tooltip-premium">Sign out</TooltipContent>
-                        </Tooltip>
+                        </div>
                     </div>
                 </SidebarFooter>
             </Sidebar>

@@ -17,12 +17,10 @@ def _prepare(conn: Connection, timeout_ms: int) -> None:
     if dialect == "postgresql":
         conn.execute(text("SET TRANSACTION READ ONLY"))
         conn.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
-    # SQL Server has no plain read-only transaction: the configured analysis
-    # login MUST be restricted in the database itself.
 
 
 def _stmt(sql: str, suffix: str = ""):
-    return text(f"SELECT * FROM ({sql}) AS q {suffix}".replace(":", "\\:"))
+    return text(f"SELECT * FROM ({sql}) AS q {suffix}")
 
 
 def run_page(db: str, sql: str, page: int, page_size: int) -> dict:
@@ -34,15 +32,13 @@ def run_page(db: str, sql: str, page: int, page_size: int) -> dict:
     with engine.connect() as conn:
         _prepare(conn, settings.ANALYSIS_TIMEOUT_MS)
         if engine.dialect.name == "mssql":
-            statement = text(sql.replace(":", "\\:"))
+            statement = text(sql)
         else:
             statement = _stmt(sql, f"LIMIT {page_size + 1} OFFSET {offset}")
 
         started = perf_counter()
         result = conn.execute(statement)
         if engine.dialect.name == "mssql":
-            # SQL Server needs ORDER BY for OFFSET/FETCH, which generated SQL does
-            # not reliably contain. Buffer only one page after skipping requested rows.
             if offset:
                 result.fetchmany(offset)
             skipped = result.fetchmany(page_size + 1)
@@ -62,23 +58,32 @@ def run_page(db: str, sql: str, page: int, page_size: int) -> dict:
     }
 
 
-def stream_csv(db: str, sql: str) -> Iterator[str]:
-    with get_engine(db).connect() as conn:
+def stream_all(db: str, sql: str) -> Iterator[str]:
+    """Stream CSV rows directly from the database cursor without loading all rows into memory.
+
+    Yields CSV-formatted chunks (one header chunk, then one chunk per row).
+    """
+    engine = get_engine(db)
+    with engine.connect() as conn:
         _prepare(conn, settings.ANALYSIS_EXPORT_TIMEOUT_MS)
+        if engine.dialect.name == "mssql":
+            statement = text(sql)
+        else:
+            statement = _stmt(sql)
+
         conn = conn.execution_options(stream_results=True, max_row_buffer=1000)
-        result = conn.execute(_stmt(sql))
+        result = conn.execute(statement)
+        columns = list(result.keys())
 
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(result.keys())
+        writer.writerow(columns)
         yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate()
 
-        sent = 0
-        for chunk in result.partitions(1000):
+        for row in result:
+            writer.writerow(row)
+            yield buf.getvalue()
             buf.seek(0)
             buf.truncate()
-            writer.writerows(chunk)
-            yield buf.getvalue()
-            sent += len(chunk)
-            if sent >= settings.ANALYSIS_EXPORT_MAX_ROWS:
-                break
