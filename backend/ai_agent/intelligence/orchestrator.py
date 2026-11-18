@@ -4,6 +4,6 @@ Kept for backward compatibility with the original module layout. The
 orchestration logic lives in :mod:`modules.intelligence.service`.
 """
 
-from modules.intelligence.service import IntelligenceService
+from ai_agent.intelligence.service import IntelligenceService
 
 __all__ = ["IntelligenceService"]

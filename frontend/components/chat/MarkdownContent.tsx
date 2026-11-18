@@ -1,8 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import remarkMath from "remark-math"
+import rehypeKatex from "rehype-katex"
+import type { Pluggable } from "unified"
 import { Check, Copy } from "lucide-react"
 
 import { markdownComponents } from "../markdown/MarkdownComponents"
@@ -12,11 +15,13 @@ import { Button } from "@/components/ui/button"
 interface MarkdownContentProps {
     content: string
     timestamp?: string
+    isStreaming?: boolean
 }
 
 const MarkdownContent = ({
     content,
     timestamp,
+    isStreaming = false,
 }: MarkdownContentProps) => {
     const [copied, setCopied] = useState(false)
 
@@ -34,12 +39,48 @@ const MarkdownContent = ({
         }, 2000)
     }
 
+    // Memoize plugins to prevent re-creation on each render
+    const plugins = useMemo(
+        () => [
+            remarkGfm,
+            remarkMath,
+        ],
+        []
+    )
+
+    const rehypePlugins = useMemo<Pluggable[]>(
+        () => [
+            [rehypeKatex, { strict: false, trust: true }] as Pluggable,
+        ],
+        []
+    )
+
     return (
         <div className="group w-full">
             <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                 <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={plugins}
+                    rehypePlugins={rehypePlugins}
                     components={markdownComponents}
+                    // Allow HTML for KaTeX output
+                    allowedElements={[
+                        "h1", "h2", "h3", "h4", "h5", "h6",
+                        "p", "br", "hr",
+                        "ul", "ol", "li",
+                        "table", "thead", "tbody", "tr", "th", "td",
+                        "blockquote", "pre", "code",
+                        "a", "strong", "em", "del", "ins", "sup", "sub",
+                        "img", "figure", "figcaption",
+                        "span", "div", "section",
+                        // KaTeX elements
+                        "math", "mi", "mo", "mn", "ms", "mtext", "mspace",
+                        "mrow", "mfrac", "msqrt", "mroot", "mfenced",
+                        "menclose", "msub", "msup", "msubsup", "munder",
+                        "mover", "munderover", "mmultiscripts", "mtable",
+                        "mtr", "mtd", "mlabeledtr", "maction",
+                        // MathML
+                        "annotation", "annotation-xml", "semantics",
+                    ]}
                 >
                     {content}
                 </ReactMarkdown>
@@ -52,6 +93,7 @@ const MarkdownContent = ({
                     onClick={handleCopy}
                     className="size-7 text-muted-foreground"
                     aria-label={copied ? "Copied" : "Copy response"}
+                    disabled={isStreaming}
                 >
                     {copied ? (
                         <Check className="size-3.5 text-emerald-500" />
@@ -66,6 +108,13 @@ const MarkdownContent = ({
                             hour: "2-digit",
                             minute: "2-digit",
                         })}
+                    </span>
+                )}
+
+                {isStreaming && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+                        Streaming...
                     </span>
                 )}
             </div>

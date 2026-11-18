@@ -93,7 +93,8 @@ on success → commit DB, save chunk_count on Document row
 2. `retrieve(visible_ids, question)`:
    - `similarity_search_with_score(query, k=RETRIEVER_K)` filtered by `document_ids` (`$in`).
    - Optional `RAG_MAX_DISTANCE` cut-off.
-   - **Neighbor expansion:** ±`window=1` chunk index per hit via direct SQL; deduped; ordered by `filename + chunk_index` → coherent context blocks.
+   - **Neighbor expansion:** ±`window=1` chunk index per hit via direct SQL; deduped.
+   - Chunks are returned to the LLM in **RRF relevance order** (most relevant first), with each hit's neighbor window grouped immediately after it — chunks are no longer re-sorted by `filename + chunk_index`, so the retrieval ranking is not discarded before generation.
 3. `format_context(chunks)` → numbered `[i] file (page p) [chunk N]` blocks.
 4. `format_sources(chunks)` → appends `--- **Sources:** file (p. 3, 5) · …` footer.
 5. `strip_sources()` removes the footer when replaying history.

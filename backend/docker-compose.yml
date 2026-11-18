@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: chanakya
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chanakya"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/chanakya
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-random-string-of-at-least-32-characters}
+      FRONTEND_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: lax
+      SQL_ECHO: "false"
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL_NAME: openai/gpt-oss-20b
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GOOGLE_EMBEDDING_MODEL: models/gemini-embedding-001
+      LLM_TIMEOUT_SECONDS: "120"
+      VECTOR_STORE_URL: postgresql+asyncpg://postgres:postgres@db:5432/chanakya
+      VECTOR_COLLECTION: vector_documents
+      VECTOR_DIMENSION: "3072"
+      CHUNK_SIZE: "1000"
+      CHUNK_OVERLAP: "150"
+      RETRIEVER_K: "5"
+      MAX_UPLOAD_MB: "20"
+      ANALYSIS_DB_URL_TEMPLATE: postgresql+psycopg://postgres:postgres@db:5432/{name}
+      ANALYSIS_TOP_TABLES: "3"
+      ANALYSIS_PAGE_SIZE: "100"
+      ANALYSIS_MAX_PAGE_SIZE: "500"
+      ANALYSIS_TIMEOUT_MS: "15000"
+      ANALYSIS_EXPORT_TIMEOUT_MS: "300000"
+      ANALYSIS_EXPORT_MAX_ROWS: "1000000"
+      ANALYSIS_TOKEN_MINUTES: "120"
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_REQUESTS: "30"
+      RATE_LIMIT_WINDOW_SECONDS: "60"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 SOURCES_MARKER = "\n\n---\n**Sources:**"
 EMBED_BATCH_SIZE = 32
-DEFAULT_NEIGHBOR_WINDOW = 1
 _TABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -37,16 +35,6 @@ class RetrievedChunk:
     page: int | None
     distance: float
     chunk_index: int = 0
-    element_type: str = "text"
-
-
-def calculate_file_hash(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def calculate_text_hash(value: str) -> str:
-    normalized = " ".join(value.lower().split())
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _safe_int(value) -> int | None:
@@ -56,90 +44,48 @@ def _safe_int(value) -> int | None:
         return None
 
 
-def _normalize_table(value: str) -> str:
-    lines = [l.strip() for l in value.splitlines() if l.strip()]
-    if len(lines) < 2 or "|" not in lines[0]:
-        return value
-
-    headers = [c.strip() for c in lines[0].strip("|").split("|")]
-    start = 1
-    if all(set(c.strip()) <= {"-", ":", " "} for c in lines[1].strip("|").split("|")):
-        start = 2
-
-    rows = []
-    for line in lines[start:]:
-        if "|" not in line:
-            continue
-        values = [c.strip() for c in line.strip("|").split("|")]
-        parts = []
-        for i, v in enumerate(values):
-            if not v:
-                continue
-            header = (
-                headers[i] if i < len(headers) and headers[i] else f"Column {i + 1}"
-            )
-            parts.append(f"{header}: {v}")
-        if parts:
-            rows.append(" | ".join(parts))
-
-    if not rows:
-        return value
-    return "Table:\n" + "\n".join(f"Row {i}: {r}" for i, r in enumerate(rows, start=1))
-
-
-def _normalize_element(page: PageText) -> str:
-    value = page.text.strip()
-    if not value:
-        return ""
-    if page.element_type == "table":
-        return _normalize_table(value)
-    return value
-
-
 def _build_chunks(
     *,
     user_id: UUID,
     document_id: UUID,
     filename: str,
     pages: list[PageText],
-    source_hash: str,
 ) -> list[LCDocument]:
+    """Split extracted pages into chunks. Only the metadata PGVectorStore
+    persists is stored: user_id, document_id, filename, page, chunk_index.
+    Chunk identity is the deterministic UUIDv5 id created in
+    :func:`ingest_document`; no manual content hashes are kept.
+    """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ". ", "。 ", "! ", "? ", "; ", ", ", " ", ""],
     )
 
     chunks: list[LCDocument] = []
+    chunk_index = 0
     for page in pages:
-        normalized = _normalize_element(page)
-        if not normalized:
+        text = (page.text or "").strip()
+        if not text:
             continue
 
-        for piece in splitter.split_text(normalized):
+        for piece in splitter.split_text(text):
             piece = piece.strip()
             if not piece:
                 continue
 
-            metadata: dict[str, str | int] = {
-                "user_id": str(user_id),
-                "document_id": str(document_id),
-                "filename": filename,
-                "source_hash": source_hash,
-                "element_type": page.element_type,
-                "content_hash": calculate_text_hash(piece),
-            }
-            if page.page is not None:
-                metadata["page"] = page.page
-            for key, value in (page.metadata or {}).items():
-                metadata.setdefault(key, value)
-
-            chunks.append(LCDocument(page_content=piece, metadata=metadata))
-
-    total = len(chunks)
-    for index, chunk in enumerate(chunks):
-        chunk.metadata["chunk_index"] = index
-        chunk.metadata["total_chunks"] = total
+            chunks.append(
+                LCDocument(
+                    page_content=piece,
+                    metadata={
+                        "user_id": str(user_id),
+                        "document_id": str(document_id),
+                        "filename": filename,
+                        "page": page.page,
+                        "chunk_index": chunk_index,
+                    },
+                )
+            )
+            chunk_index += 1
     return chunks
 
 
@@ -150,7 +96,6 @@ def _create_chunk_id(document_id: UUID, chunk_index: int) -> str:
 def ingest_document(
     *, user_id: UUID, document_id: UUID, filename: str, data: bytes
 ) -> int:
-    source_hash = calculate_file_hash(data)
     logger.info("Starting ingestion: filename=%s document_id=%s", filename, document_id)
 
     pages = extract_pages(filename, data)
@@ -159,7 +104,6 @@ def ingest_document(
         document_id=document_id,
         filename=filename,
         pages=pages,
-        source_hash=source_hash,
     )
     if not chunks:
         raise EmptyDocumentError("No text could be extracted from this file")
@@ -206,45 +150,6 @@ def delete_user_chunks(user_id: UUID) -> None:
     _delete_where("user_id", str(user_id))
 
 
-def _get_neighbor_chunks(
-    *, document_id: str, chunk_index: int, window: int, distance: float
-) -> list[RetrievedChunk]:
-    table = _vector_table()
-    sql = text(f"""
-        SELECT content, filename, page, chunk_index, element_type
-        FROM "{table}"
-        WHERE document_id = :d
-          AND chunk_index BETWEEN :lo AND :hi
-        ORDER BY chunk_index
-        """)
-
-    with engine.connect() as conn:
-        rows = (
-            conn.execute(
-                sql,
-                {
-                    "d": document_id,
-                    "lo": max(0, chunk_index - window),
-                    "hi": chunk_index + window,
-                },
-            )
-            .mappings()
-            .all()
-        )
-
-    return [
-        RetrievedChunk(
-            content=r["content"],
-            filename=r["filename"] or "document",
-            page=r["page"],
-            distance=distance,
-            chunk_index=r["chunk_index"] or 0,
-            element_type=r["element_type"] or "text",
-        )
-        for r in rows
-    ]
-
-
 def _keyword_search(document_ids: list[str], query: str, k: int) -> list[dict]:
     """Full-text keyword search over document chunks using PostgreSQL FTS."""
     table = _vector_table()
@@ -257,7 +162,7 @@ def _keyword_search(document_ids: list[str], query: str, k: int) -> list[dict]:
     id_list = ", ".join(id_clauses)
 
     sql = text(f"""
-        SELECT document_id, chunk_index, content, filename, page, element_type,
+    SELECT document_id, chunk_index, content, filename, page,
                ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :q)) AS rank
         FROM "{table}"
         WHERE document_id IN ({id_list})
@@ -276,7 +181,6 @@ def _keyword_search(document_ids: list[str], query: str, k: int) -> list[dict]:
             "content": r["content"],
             "filename": r["filename"] or "document",
             "page": _safe_int(r["page"]),
-            "element_type": r["element_type"] or "text",
         }
         for r in rows
     ]
@@ -303,10 +207,11 @@ def retrieve(
     document_ids: list[UUID],
     query: str,
     k: int | None = None,
-    neighbor_window: int = DEFAULT_NEIGHBOR_WINDOW,
 ) -> list[RetrievedChunk]:
-    """Hybrid retrieval: vector similarity + full-text keyword search fused
-    with Reciprocal Rank Fusion, then neighbor-window expansion."""
+    """Hybrid retrieval: vector similarity + PostgreSQL full-text search fused
+    with Reciprocal Rank Fusion. Results stay in relevance (fusion) order so
+    the most useful excerpts reach the LLM first.
+    """
     if not document_ids:
         return []
     store = get_pgvector_store()
@@ -344,7 +249,6 @@ def retrieve(
                 "content": doc.page_content,
                 "filename": str(metadata.get("filename", "document")),
                 "page": _safe_int(metadata.get("page")),
-                "element_type": str(metadata.get("element_type", "text")),
             },
         )
 
@@ -364,13 +268,9 @@ def retrieve(
     # --- 3) Reciprocal Rank Fusion ---
     fused_keys = _rrf_combine(vector_keys, keyword_keys, top_k)
 
-    # --- 4) Build final chunks with neighbor-window expansion ---
+    # --- 4) Build final chunks in fusion order, deduplicated ---
     final: list[RetrievedChunk] = []
     seen: set[tuple[str, int]] = set()
-
-    def _meta_for(key: tuple[str, int]) -> dict | None:
-        return vector_meta.get(key) or keyword_meta.get(key)
-
     for document_id, chunk_index in fused_keys:
         if document_id not in visible:
             continue
@@ -379,45 +279,25 @@ def retrieve(
             continue
         seen.add(key)
 
-        meta = _meta_for(key)
+        meta = vector_meta.get(key) or keyword_meta.get(key)
         if meta is None:
             continue
 
-        neighbors = _get_neighbor_chunks(
-            document_id=document_id,
-            chunk_index=chunk_index,
-            window=neighbor_window,
-            distance=vector_distances.get(key, 0.0),
-        ) or [
+        final.append(
             RetrievedChunk(
                 content=meta["content"],
                 filename=meta["filename"],
                 page=meta["page"],
                 distance=vector_distances.get(key, 0.0),
                 chunk_index=chunk_index,
-                element_type=meta["element_type"],
             )
-        ]
+        )
 
-        for n in neighbors:
-            nkey = (document_id, n.chunk_index)
-            if nkey in seen:
-                continue
-            seen.add(nkey)
-            final.append(n)
-
-    final.sort(key=lambda c: (c.filename, c.chunk_index))
     return final
 
 
 def format_context(chunks: list[RetrievedChunk]) -> str:
-    blocks = []
-    for index, chunk in enumerate(chunks, start=1):
-        location = f", page {chunk.page}" if chunk.page is not None else ""
-        blocks.append(
-            f"[{index}] {chunk.filename}{location} [chunk {chunk.chunk_index}]\n{chunk.content}"
-        )
-    return "\n\n".join(blocks)
+    return "\n\n---\n\n".join(chunk.content for chunk in chunks)
 
 
 def format_sources(chunks: list[RetrievedChunk]) -> str:

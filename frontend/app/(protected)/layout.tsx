@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { DialogProvider } from "@/components/ui/dialog-provider";
+import { ToastProvider } from "@/components/ui/toast-provider";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
@@ -24,11 +25,13 @@ export default async function ProtectedLayout({
         <DialogProvider>
             <WorkspaceProvider>
                 <SidebarProvider>
-                    <AppSidebar user={session.user} />
+                    <ToastProvider>
+                        <AppSidebar user={session.user} />
 
-                    <SidebarInset className="h-svh overflow-hidden">
-                        {children}
-                    </SidebarInset>
+                        <SidebarInset className="h-svh overflow-hidden">
+                            {children}
+                        </SidebarInset>
+                    </ToastProvider>
                 </SidebarProvider>
             </WorkspaceProvider>
         </DialogProvider>

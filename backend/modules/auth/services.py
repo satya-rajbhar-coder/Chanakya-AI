@@ -43,7 +43,19 @@ class AuthService:
         self.tokens.add(row)
         return access, refresh
 
-    def create_user(self, email: str, name: str, password: str) -> User:
+    def create_user(
+        self,
+        email: str,
+        name: str,
+        password: str,
+        role: str = "user",
+        party_name: str | None = None,
+        ward_no: str | None = None,
+        assembly_no: str | None = None,
+        parliamentary_constituency: str | None = None,
+    ) -> User:
+        from modules.admin.schemas import ROLE_HIERARCHY
+
         email = _normalize_email(email)
         if self.users.get_by_email(email):
             raise HTTPException(
@@ -51,7 +63,15 @@ class AuthService:
             )
 
         user = User(
-            name=name.strip(), email=email, hashed_password=hash_password(password)
+            name=name.strip(),
+            email=email,
+            hashed_password=hash_password(password),
+            role=role,
+            hierarchy_level=ROLE_HIERARCHY.get(role),
+            party_name=party_name,
+            ward_no=ward_no,
+            assembly_no=assembly_no,
+            parliamentary_constituency=parliamentary_constituency,
         )
         self.users.add(user)
         try:
@@ -68,7 +88,11 @@ class AuthService:
     def login(self, email: str, password: str) -> tuple[str, str]:
         user = self.users.get_by_email(_normalize_email(email))
 
-        if not user or not user.is_active or not verify_password(password, user.hashed_password):
+        if (
+            not user
+            or not user.is_active
+            or not verify_password(password, user.hashed_password)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid user or password",

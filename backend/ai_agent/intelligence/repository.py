@@ -21,14 +21,10 @@ class IntelligenceRepository:
         self.conversations = ConversationService(db)
         self.message_repo = MessageRepository(db)
 
-    def get_or_create_conversation(
-        self, conversation_id: UUID | None, title: str
-    ):
+    def get_or_create_conversation(self, conversation_id: UUID | None, title: str):
         """Return an existing conversation (owned by the user) or create a new one."""
         if conversation_id is not None:
-            return self.conversations.get_conversation(
-                conversation_id, self.user
-            )
+            return self.conversations.get_conversation(conversation_id, self.user)
         return self.conversations.create_conversation(
             self.user,
             ConversationCreate(title=title),

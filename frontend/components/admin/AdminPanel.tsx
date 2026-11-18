@@ -2,28 +2,35 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { FormEvent, ReactNode } from "react"
-import { Loader2, Trash2, X } from "lucide-react"
+import { Loader2, Trash2, AlertTriangle, UserX, Database, FileText, Users, Shield, Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 import { useWorkspace } from "@/components/workspace-provider"
 import { useDialogs } from "@/components/ui/dialog-provider"
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
+import type { UserRole } from "@/services/auth"
 import {
     AdminUser,
+    AvailableDatabase,
     Client,
+    ROLE_HIERARCHY,
+    ROLE_LABELS,
     createAdminUser,
-    createClient,
-    deleteClient,
+    deleteAdminUser,
+    deactivateAdminUser,
+    getAvailableDatabases,
     listAdminClients,
     listAdminUsers,
     setUserAssignments,
@@ -38,11 +45,6 @@ import {
 } from "@/services/documents"
 import { getApiErrorMessage } from "@/services/error"
 import { mapWithConcurrency } from "@/lib/utils"
-import {
-    adminListHistory,
-    deleteHistory,
-    type AdminHistoryItem,
-} from "@/services/analysis"
 
 
 const Message = ({ error, success }: { error?: string | null; success?: string | null }) => (
@@ -56,22 +58,26 @@ const Message = ({ error, success }: { error?: string | null; success?: string |
     </>
 )
 
-const Field = ({ label, children }: { label: string; children: ReactNode }) => (
+const Field = ({ label, children, required = false }: { label: string; children: ReactNode; required?: boolean }) => (
     <label className="flex flex-col gap-1.5 text-sm">
-        <span className="text-muted-foreground">{label}</span>
+        <span className="text-muted-foreground flex items-center gap-1">
+            {label}
+            {required && <span className="text-destructive">*</span>}
+        </span>
         {children}
     </label>
 )
 
-const Section = ({ title, description, children }: {
-    title: string
-    description: string
-    children: ReactNode
-}) => (
+const Section = ({ title, description, children, icon }: { title: string; description: string; children: ReactNode; icon?: ReactNode }) => (
     <Card>
         <CardHeader>
-            <CardTitle className="text-base">{title}</CardTitle>
-            <CardDescription>{description}</CardDescription>
+            <div className="flex items-center gap-2">
+                {icon}
+                <div>
+                    <CardTitle className="text-base">{title}</CardTitle>
+                    <CardDescription>{description}</CardDescription>
+                </div>
+            </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">{children}</CardContent>
     </Card>
@@ -84,8 +90,7 @@ const tableHeadClass =
 
 const tableCellClass = "whitespace-nowrap px-3 py-2.5 text-sm"
 
-
-const clientLabel = (c: Client) => `${c.code} · ${c.name}`
+const clientLabel = (c: Client) => `${c.name} · ${c.client_identifier}`
 
 interface ClientPickerProps {
     clients: Client[]
@@ -96,7 +101,7 @@ interface ClientPickerProps {
 
 const ClientPicker = ({ clients, selected, onChange, disabled }: ClientPickerProps) => {
     if (clients.length === 0) {
-        return <p className="text-sm text-muted-foreground">No clients yet.</p>
+        return <p className="text-sm text-muted-foreground">No clients available.</p>
     }
 
     const toggle = (id: string) =>
@@ -117,201 +122,68 @@ const ClientPicker = ({ clients, selected, onChange, disabled }: ClientPickerPro
                         disabled={disabled}
                     />
                     {clientLabel(c)}
-                    {c.client_identifier && (
-                        <span className="text-muted-foreground">({c.client_identifier})</span>
-                    )}
                 </label>
             ))}
         </div>
     )
 }
 
+interface DatabaseSelectorProps {
+    databases: AvailableDatabase[]
+    selected: string | null
+    onChange: (name: string | null) => void
+    disabled?: boolean
+    placeholder?: string
+}
 
-const ClientsSection = ({ clients, onCreated }: {
-    clients: Client[]
-    onCreated: () => Promise<void>
-}) => {
-    const [code, setCode] = useState("")
-    const [name, setName] = useState("")
-    const [databaseName, setDatabaseName] = useState("")
-    const [clientIdentifier, setClientIdentifier] = useState("")
-    const [description, setDescription] = useState("")
-    const [saving, setSaving] = useState(false)
-    const [busy, setBusy] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-    const [success, setSuccess] = useState<string | null>(null)
-    const { confirm } = useDialogs()
-
-    const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault()
-        setError(null)
-        setSuccess(null)
-
-        if (!code.trim() || !name.trim() || !databaseName.trim() || !clientIdentifier.trim()) {
-            setError("Code, name, database name and client identifier are required")
-            return
-        }
-
-        setSaving(true)
-        try {
-            await createClient({
-                code: code.trim(),
-                name: name.trim(),
-                database_name: databaseName.trim(),
-                client_identifier: clientIdentifier.trim(),
-                description: description.trim() || undefined,
-            })
-            setSuccess(`Client "${name.trim()}" created`)
-            setCode("")
-            setName("")
-            setDatabaseName("")
-            setClientIdentifier("")
-            setDescription("")
-            await onCreated()
-        } catch (err) {
-            setError(getApiErrorMessage(err))
-        } finally {
-            setSaving(false)
-        }
-    }
-
-    const handleDeleteClient = async (clientId: string, clientName: string) => {
-        const approved = await confirm({
-            title: "Delete client?",
-            description: `"${clientName}" and its database assignment will be permanently removed. This action cannot be undone.`,
-            confirmLabel: "Delete",
-            destructive: true,
-        })
-
-        if (!approved) {
-            return
-        }
-
-        setBusy(true)
-        setError(null)
-        setSuccess(null)
-        try {
-            await deleteClient(clientId)
-            setSuccess(`Client deleted`)
-            await onCreated()
-        } catch (err) {
-            setError(getApiErrorMessage(err))
-        } finally {
-            setBusy(false)
-        }
+const DatabaseSelector = ({ databases, selected, onChange, disabled, placeholder = "Select database" }: DatabaseSelectorProps) => {
+    const availableDatabases = databases.filter(db => !db.is_assigned)
+    
+    if (availableDatabases.length === 0) {
+        return (
+            <div className="flex items-center gap-2">
+                <Select value={selected ?? ""} onValueChange={onChange} disabled={disabled || true}>
+                    <SelectTrigger className="w-full">
+                        <SelectValue placeholder={placeholder} />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="" disabled>No unassigned databases available</SelectItem>
+                    </SelectContent>
+                </Select>
+                <span className="text-xs text-destructive">No unassigned databases available</span>
+            </div>
+        )
     }
 
     return (
-        <Section
-            title="Clients"
-            description="Client databases available for assignment."
-        >
-            <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Code *">
-                    <Input value={code} onChange={(e) => setCode(e.target.value)} disabled={saving} />
-                </Field>
-                <Field label="Name *">
-                    <Input value={name} onChange={(e) => setName(e.target.value)} disabled={saving} />
-                </Field>
-                <Field label="Database name *">
-                    <Input
-                        value={databaseName}
-                        onChange={(e) => setDatabaseName(e.target.value)}
-                        disabled={saving}
-                    />
-                </Field>
-                <Field label="Client identifier *">
-                    <Input
-                        value={clientIdentifier}
-                        onChange={(e) => setClientIdentifier(e.target.value)}
-                        placeholder="e.g., client147"
-                        disabled={saving}
-                    />
-                </Field>
-                <Field label="Description">
-                    <Input
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        disabled={saving}
-                    />
-                </Field>
-                <div className="flex flex-col justify-end gap-3">
-                    <Message error={error} success={success} />
-                    <Button type="submit" disabled={saving} className="w-fit">
-                        {saving ? "Creating…" : "Create client"}
-                    </Button>
-                </div>
-            </form>
-
-            <div className="overflow-x-auto rounded-md border">
-                <table className="w-full">
-                    <thead className="bg-muted/50">
-                        <tr>
-                            <th className={tableHeadClass}>Code</th>
-                            <th className={tableHeadClass}>Name</th>
-                            <th className={tableHeadClass}>Client ID</th>
-                            <th className={tableHeadClass}>Database</th>
-                            <th className={tableHeadClass}>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {clients.length === 0 ? (
-                            <tr>
-                                <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
-                                    No clients yet.
-                                </td>
-                            </tr>
-                        ) : (
-                            clients.map((c) => (
-                                <tr key={c.id} className="border-t">
-                                    <td className={`${tableCellClass} font-mono`}>{c.code}</td>
-                                    <td className={tableCellClass}>{c.name}</td>
-                                    <td className={`${tableCellClass} font-mono`}>{c.client_identifier}</td>
-                                    <td className={`${tableCellClass} font-mono`}>{c.database_name}</td>
-                                    <td className={tableCellClass}>
-                                        <Badge variant={c.is_active ? "success" : "secondary"}>
-                                            {c.is_active ? "Active" : "Inactive"}
-                                        </Badge>
-                                    </td>
-                                    <td className={tableCellClass}>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    onClick={() => handleDeleteClient(c.id, c.name)}
-                                                    disabled={busy}
-                                                    className="text-destructive"
-                                                    aria-label={`Delete ${c.name}`}
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </Button>
-                                            </TooltipTrigger>
-                                            <TooltipContent side="left">Delete client</TooltipContent>
-                                        </Tooltip>
-                                    </td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
-        </Section>
+        <Select value={selected ?? ""} onValueChange={(v) => onChange(v || null)} disabled={disabled}>
+            <SelectTrigger className="w-full">
+                <SelectValue placeholder={placeholder} />
+            </SelectTrigger>
+            <SelectContent>
+                {availableDatabases.map((db) => (
+                    <SelectItem key={db.name} value={db.name}>
+                        {db.name}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     )
 }
 
-
-const UserRow = ({ user, clients, isSelf, onChanged }: {
+const UserRow = ({ user, clients, isSelf, onChanged, onDelete }: {
     user: AdminUser
     clients: Client[]
     isSelf: boolean
     onChanged: (user: AdminUser) => void
+    onDelete: () => void
 }) => {
     const [assigned, setAssigned] = useState<string[]>(user.client_ids)
     const [password, setPassword] = useState("")
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState<string | null>(null)
+    const { confirm } = useDialogs()
 
     const dirty =
         assigned.length !== user.client_ids.length ||
@@ -336,15 +208,57 @@ const UserRow = ({ user, clients, isSelf, onChanged }: {
     const saveAssignments = () =>
         run(() => setUserAssignments(user.id, assigned), "Assignments saved")
 
-    const toggleActive = () =>
-        run(
-            () => updateAdminUser(user.id, { is_active: !user.is_active }),
-            user.is_active ? "User deactivated" : "User activated"
-        )
+    const toggleActive = async () => {
+        if (user.is_active) {
+            const approved = await confirm({
+                title: "Deactivate user?",
+                description: `"${user.name}" will be deactivated and lose access. They can be reactivated later.`,
+                confirmLabel: "Deactivate",
+                destructive: true,
+            })
+            if (!approved) return
+            run(
+                () => deactivateAdminUser(user.id),
+                "User deactivated"
+            )
+        } else {
+            run(
+                () => updateAdminUser(user.id, { is_active: true }),
+                "User activated"
+            )
+        }
+    }
 
     const resetPassword = async () => {
         await run(() => updateAdminUser(user.id, { password }), "Password updated")
         setPassword("")
+    }
+
+    const handleDelete = async () => {
+        const approved = await confirm({
+            title: "Delete user permanently?",
+            description: `This will permanently delete "${user.name}" and all their data. This action cannot be undone.`,
+            confirmLabel: "Delete Permanently",
+            cancelLabel: "Cancel",
+            destructive: true,
+        })
+
+        if (!approved) {
+            return
+        }
+
+        setBusy(true)
+        setError(null)
+        setSuccess(null)
+        try {
+            await deleteAdminUser(user.id, true)
+            setSuccess(`User "${user.name}" deleted`)
+            onDelete()
+        } catch (err) {
+            setError(getApiErrorMessage(err))
+        } finally {
+            setBusy(false)
+        }
     }
 
     return (
@@ -352,8 +266,17 @@ const UserRow = ({ user, clients, isSelf, onChanged }: {
             <td className="px-3 py-3">
                 <p className="text-sm font-medium">{user.name}</p>
                 <p className="text-xs text-muted-foreground">{user.email}</p>
-                <Badge variant={user.role === "admin" ? "default" : "secondary"} className="mt-1.5">
-                    {user.role}
+                <Badge
+                    variant={user.role === "admin" ? "default" : "secondary"}
+                    className="mt-1.5"
+                    title={`Level ${user.hierarchy_level ?? ROLE_HIERARCHY[user.role]}`}
+                >
+                    {ROLE_LABELS[user.role] || user.role}
+                    {user.ward_no && <span className="ml-1 text-xs opacity-70">· {user.ward_no}</span>}
+                    {user.assembly_no && <span className="ml-1 text-xs opacity-70">· {user.assembly_no}</span>}
+                    {user.parliamentary_constituency && (
+                        <span className="ml-1 text-xs opacity-70">· {user.parliamentary_constituency}</span>
+                    )}
                 </Badge>
             </td>
             <td className="min-w-64 px-3 py-3">
@@ -380,7 +303,7 @@ const UserRow = ({ user, clients, isSelf, onChanged }: {
                     </div>
                 )}
             </td>
-            <td className="min-w-64 px-3 py-3">
+            <td className="min-w-80 px-3 py-3">
                 <div className="flex flex-col gap-2">
                     <div className="flex gap-2">
                         <Input
@@ -413,6 +336,21 @@ const UserRow = ({ user, clients, isSelf, onChanged }: {
                             {user.is_active ? "Deactivate" : "Activate"}
                         </Button>
                     )}
+                    {!isSelf && user.role !== "admin" && (
+                        <div className="border-t pt-2">
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive w-fit"
+                                onClick={handleDelete}
+                                disabled={busy}
+                            >
+                                <UserX className="h-3.5 w-3.5 mr-1" />
+                                Delete User
+                            </Button>
+                        </div>
+                    )}
                     <Message error={error} success={success} />
                 </div>
             </td>
@@ -423,20 +361,31 @@ const UserRow = ({ user, clients, isSelf, onChanged }: {
 const UsersSection = ({
     users,
     clients,
+    documents,
+    databases,
     currentUserId,
-    onCreated,
-    onChanged,
+    onRefreshUsers,
+    onRefreshDocuments,
+    onUserChanged,
 }: {
     users: AdminUser[]
     clients: Client[]
+    documents: DocumentResponse[]
+    databases: AvailableDatabase[]
     currentUserId: string
-    onCreated: () => Promise<void>
-    onChanged: (user: AdminUser) => void
+    onRefreshUsers: () => Promise<void>
+    onRefreshDocuments: () => Promise<void>
+    onUserChanged: (user: AdminUser) => void
 }) => {
     const [name, setName] = useState("")
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
-    const [assigned, setAssigned] = useState<string[]>([])
+    const [role, setRole] = useState<UserRole>("user")
+    const [partyName, setPartyName] = useState("")
+    const [wardNo, setWardNo] = useState("")
+    const [assemblyNo, setAssemblyNo] = useState("")
+    const [parliamentaryConstituency, setParliamentaryConstituency] = useState("")
+    const [selectedDatabase, setSelectedDatabase] = useState<string | null>(null)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState<string | null>(null)
@@ -451,20 +400,49 @@ const UsersSection = ({
             return
         }
 
+        // Build client_ids from selected database
+        let clientIds: string[] = []
+        if (selectedDatabase) {
+            // Check if there's already a client for this database
+            const existingClient = clients.find(c => c.database_name === selectedDatabase)
+            if (existingClient) {
+                clientIds = [existingClient.id]
+            } else {
+                // We'll create a client with this database in the backend
+                // For now, pass the database name and let the backend handle it
+                // The backend createAdminUser will need to be updated to accept database_name
+                // For now, we'll just pass the database as a client_id placeholder
+                // and the backend will need to map it
+                clientIds = [] // Will be handled by backend
+            }
+        }
+
         setSaving(true)
         try {
             await createAdminUser({
                 name: name.trim(),
                 email: email.trim(),
                 password,
-                client_ids: assigned,
-            })
+                role,
+                party_name: partyName.trim() || undefined,
+                ward_no: wardNo.trim() ? Number(wardNo.trim()) : undefined,
+                assembly_no: assemblyNo.trim() || undefined,
+                parliamentary_constituency: parliamentaryConstituency.trim() || undefined,
+                client_ids: clientIds,
+                // Pass database_name for backend to create client if needed
+                database_name: selectedDatabase || undefined,
+            } as any)
             setSuccess(`User ${email.trim()} created`)
             setName("")
             setEmail("")
             setPassword("")
-            setAssigned([])
-            await onCreated()
+            setRole("user")
+            setPartyName("")
+            setWardNo("")
+            setAssemblyNo("")
+            setParliamentaryConstituency("")
+            setSelectedDatabase(null)
+            await onRefreshUsers()
         } catch (err) {
             setError(getApiErrorMessage(err))
         } finally {
@@ -472,96 +450,191 @@ const UsersSection = ({
         }
     }
 
+    // Role-specific required fields
+    const requiresWard = role === "karyakarta" || role === "corporator"
+    const requiresAssembly = role === "aamdar"
+    const requiresParliamentary = role === "khasdar"
+
     return (
         <Section
-            title="Users"
-            description="Create accounts and manage client access."
+            title="User Management"
+            description="Create and manage user accounts with database/client assignments and document access."
+            icon={<Users className="h-5 w-5" />}
         >
-            <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Name *">
-                    <Input value={name} onChange={(e) => setName(e.target.value)} disabled={saving} />
-                </Field>
-                <Field label="Email *">
-                    <Input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        autoComplete="off"
-                        disabled={saving}
-                    />
-                </Field>
-                <Field label="Password *">
-                    <Input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        autoComplete="new-password"
-                        disabled={saving}
-                    />
-                </Field>
-                <div className="flex flex-col gap-1.5 text-sm lg:col-span-2">
-                    <span className="text-muted-foreground">Assigned clients</span>
-                    <ClientPicker
-                        clients={clients}
-                        selected={assigned}
-                        onChange={setAssigned}
-                        disabled={saving}
-                    />
-                </div>
-                <div className="flex flex-col justify-end gap-3">
-                    <Message error={error} success={success} />
-                    <Button type="submit" disabled={saving} className="w-fit">
-                        {saving ? "Creating…" : "Create user"}
-                    </Button>
-                </div>
-            </form>
+            <div className="grid gap-6">
+                {/* Create User Form */}
+                <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Field label="Name" required>
+                        <Input value={name} onChange={(e) => setName(e.target.value)} disabled={saving} />
+                    </Field>
+                    <Field label="Email" required>
+                        <Input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            autoComplete="off"
+                            disabled={saving}
+                        />
+                    </Field>
+                    <Field label="Password" required>
+                        <Input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            autoComplete="new-password"
+                            disabled={saving}
+                        />
+                    </Field>
+                    <Field label="Role" required>
+                        <Select
+                            value={role}
+                            onValueChange={(value) => setRole(value as UserRole)}
+                            disabled={saving}
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {Object.entries(ROLE_HIERARCHY).map(([key]) => (
+                                    <SelectItem key={key} value={key}>
+                                        {ROLE_LABELS[key]}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </Field>
+                    <Field label="Party name">
+                        <Input
+                            value={partyName}
+                            onChange={(e) => setPartyName(e.target.value)}
+                            placeholder="e.g., Bharatiya Janata Party"
+                            disabled={saving}
+                        />
+                    </Field>
+                    {requiresWard && (
+                        <Field label="Ward number" required>
+                            <Input
+                                type="number"
+                                value={wardNo}
+                                onChange={(e) => setWardNo(e.target.value)}
+                                placeholder="e.g., 5"
+                                disabled={saving}
+                            />
+                        </Field>
+                    )}
+                    {requiresAssembly && (
+                        <Field label="Assembly number" required>
+                            <Input
+                                value={assemblyNo}
+                                onChange={(e) => setAssemblyNo(e.target.value)}
+                                placeholder="e.g., Assembly 12"
+                                disabled={saving}
+                            />
+                        </Field>
+                    )}
+                    {requiresParliamentary && (
+                        <Field label="Parliamentary constituency" required>
+                            <Input
+                                value={parliamentaryConstituency}
+                                onChange={(e) => setParliamentaryConstituency(e.target.value)}
+                                placeholder="e.g., PC 5"
+                                disabled={saving}
+                            />
+                        </Field>
+                    )}
+                    <Field label="Database" required>
+                        <DatabaseSelector
+                            databases={databases}
+                            selected={selectedDatabase}
+                            onChange={setSelectedDatabase}
+                            disabled={saving}
+                            placeholder="Select database for this user"
+                        />
+                    </Field>
+                    <div className="flex flex-col gap-1.5 text-sm lg:col-span-2">
+                        <span className="text-muted-foreground">Additional Clients (optional)</span>
+                        <ClientPicker
+                            clients={clients}
+                            selected={[]}
+                            onChange={() => {}}
+                            disabled={true}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Primary database is selected above. Additional clients can be assigned after creation.
+                        </p>
+                    </div>
+                    <div className="flex flex-col justify-end gap-3">
+                        <Message error={error} success={success} />
+                        <Button type="submit" disabled={saving} className="w-fit">
+                            {saving ? "Creating…" : "Create User"}
+                        </Button>
+                    </div>
+                </form>
 
-            <div className="overflow-x-auto rounded-md border">
-                <table className="w-full">
-                    <thead className="bg-muted/50">
-                        <tr>
-                            <th className={tableHeadClass}>User</th>
-                            <th className={tableHeadClass}>Clients</th>
-                            <th className={tableHeadClass}>Account</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {users.length === 0 ? (
-                            <tr>
-                                <td colSpan={3} className="px-3 py-6 text-center text-sm text-muted-foreground">
-                                    No users yet.
-                                </td>
-                            </tr>
-                        ) : (
-                            users.map((user) => (
-                                <UserRow
-                                    key={user.id}
-                                    user={user}
-                                    clients={clients}
-                                    isSelf={user.id === currentUserId}
-                                    onChanged={onChanged}
-                                />
-                            ))
-                        )}
-                    </tbody>
-                </table>
+                {/* Users Table */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Users</CardTitle>
+                        <CardDescription>Manage user accounts, client access, and document assignments.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="overflow-x-auto rounded-md border">
+                            <table className="w-full">
+                                <thead className="bg-muted/50">
+                                    <tr>
+                                        <th className={tableHeadClass}>User</th>
+                                        <th className={tableHeadClass}>Clients</th>
+                                        <th className={tableHeadClass}>Account</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {users.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={3} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                                No users yet.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        users.map((user) => (
+                                            <UserRow
+                                                key={user.id}
+                                                user={user}
+                                                clients={clients}
+                                                isSelf={user.id === currentUserId}
+                                                onChanged={onUserChanged}
+                                                onDelete={onRefreshUsers}
+                                            />
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Document Upload & Assignment */}
+                <DocumentsSection
+                    documents={documents}
+                    users={users}
+                    onRefresh={onRefreshDocuments}
+                />
             </div>
         </Section>
     )
 }
 
 /* ------------------------------------------------------------------ */
-/* Documents                                                           */
+/* Documents Section (integrated into Users tab)                      */
 /* ------------------------------------------------------------------ */
 
 const DocumentsSection = ({
     documents,
     users,
-    onChanged,
+    onRefresh,
 }: {
     documents: DocumentResponse[]
     users: AdminUser[]
-    onChanged: () => Promise<void>
+    onRefresh: () => Promise<void>
 }) => {
     const [userIds, setUserIds] = useState<string[]>([])
     const [files, setFiles] = useState<File[]>([])
@@ -590,11 +663,6 @@ const DocumentsSection = ({
         const errors: string[] = []
         let done = 0
 
-        // Upload with limited concurrency: sequential awaits made multi-file
-        // uploads needlessly slow, while unbounded Promise.all can overwhelm
-        // the browser/server with large PDFs.
-        const fileCount = files.length
-
         await mapWithConcurrency(files, 3, async (file) => {
             try {
                 await uploadDocument(file, userIds)
@@ -607,14 +675,14 @@ const DocumentsSection = ({
         })
 
         setUploadingName(null)
+        setFiles([])
         if (fileRef.current) fileRef.current.value = ""
 
-        const ok = fileCount - errors.length
+        const ok = files.length - errors.length
         if (ok > 0) setSuccess(`Uploaded ${ok} ${ok === 1 ? "document" : "documents"}`)
         if (errors.length > 0) setError(errors.join(" "))
 
-        setFiles([])
-        await onChanged()
+        await onRefresh()
     }
 
     const handleDelete = async (doc: DocumentResponse) => {
@@ -634,7 +702,7 @@ const DocumentsSection = ({
         try {
             await deleteDocument(doc.id)
             setSuccess(`Deleted ${doc.filename}`)
-            await onChanged()
+            await onRefresh()
         } catch (err) {
             setError(getApiErrorMessage(err))
         }
@@ -642,11 +710,12 @@ const DocumentsSection = ({
 
     return (
         <Section
-            title="Documents"
+            title="Document Management"
             description="Upload knowledge-base files and assign them to users."
+            icon={<FileText className="h-5 w-5" />}
         >
             <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-2">
-                <Field label="Assign to users *">
+                <Field label="Assign to users" required>
                     <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto rounded-md border p-2">
                         {users.map((user) => (
                             <label
@@ -672,7 +741,7 @@ const DocumentsSection = ({
                 </Field>
 
                 <div className="flex flex-col gap-4">
-                    <Field label="Files (PDF, TXT, Markdown) *">
+                    <Field label="Files (PDF, TXT, Markdown)" required>
                         <input
                             ref={fileRef}
                             type="file"
@@ -743,7 +812,7 @@ const DocumentsSection = ({
                                             <button
                                                 type="button"
                                                 onClick={() => handleDelete(doc)}
-                                                className="rounded p-1.5 text-muted-foreground"
+                                                className="rounded p-1.5 text-muted-foreground hover:text-destructive"
                                                 aria-label={`Delete ${doc.filename}`}
                                             >
                                                 <Trash2 className="size-4" />
@@ -762,138 +831,15 @@ const DocumentsSection = ({
 
 /* ------------------------------------------------------------------ */
 
-const QueryHistorySection = ({
-    history,
-    loading,
-    onRefresh,
-    onDelete,
-}: {
-    history: AdminHistoryItem[]
-    loading: boolean
-    onRefresh: () => Promise<void>
-    onDelete: (id: string) => Promise<void>
-}) => {
-    const { confirm } = useDialogs()
-    const [showSql, setShowSql] = useState<string | null>(null)
-
-    if (loading) {
-        return (
-            <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
-                <Loader2 className="size-4" />
-                Loading query history...
-            </div>
-        )
-    }
-
-    return (
-        <Section
-            title="Query History"
-            description="All analysis queries executed by users. SQL is visible only to admins."
-        >
-            <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
-                    <Loader2 className="size-4 mr-2 animate-spin" />
-                    Refresh
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                    {history.length} query{history.length !== 1 ? "s" : ""}
-                </span>
-            </div>
-
-            {history.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No queries yet.</p>
-            ) : (
-                <div className="overflow-x-auto rounded-md border">
-                    <table className="w-full">
-                        <thead className="bg-muted/50">
-                            <tr>
-                                <th className={tableHeadClass}>Title / Question</th>
-                                <th className={tableHeadClass}>Database</th>
-                                <th className={tableHeadClass}>Rows</th>
-                                <th className={tableHeadClass}>Created</th>
-                                <th className={tableHeadClass}>SQL</th>
-                                <th className={tableHeadClass} />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {history.map((item) => (
-                                <tr key={item.id} className="border-t">
-                                    <td className="max-w-xs truncate px-3 py-2.5 text-sm" title={item.question}>
-                                        <p className="font-medium truncate">{item.title || item.question}</p>
-                                        <p className="text-xs text-muted-foreground truncate">{item.question}</p>
-                                    </td>
-                                    <td className={tableCellClass}>{item.database}</td>
-                                    <td className={tableCellClass}>{item.row_count ?? "—"}</td>
-                                    <td className={tableCellClass}>
-                                        {new Date(item.created_at).toLocaleString()}
-                                    </td>
-                                    <td className={tableCellClass}>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => setShowSql(item.id === showSql ? null : item.id)}
-                                            className="text-xs"
-                                        >
-                                            {showSql === item.id ? "Hide SQL" : "Show SQL"}
-                                        </Button>
-                                    </td>
-                                    <td className="px-3 py-2.5 text-right">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                            onClick={async () => {
-                                                const approved = await confirm({
-                                                    title: "Delete query history?",
-                                                    description: "This query record will be removed.",
-                                                    confirmLabel: "Delete",
-                                                    destructive: true,
-                                                })
-                                                if (approved) {
-                                                    await onDelete(item.id)
-                                                }
-                                            }}
-                                            aria-label="Delete"
-                                        >
-                                            <Trash2 className="size-3.5" />
-                                        </Button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-
-            {showSql && (
-                <div className="mt-4 rounded-xl border border-border/50 bg-muted/50 p-4">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-medium text-foreground">SQL Query</h3>
-                        <Button variant="ghost" size="sm" onClick={() => setShowSql(null)}>
-                            <X className="size-3.5" />
-                        </Button>
-                    </div>
-                    <pre className="p-3 rounded bg-muted text-xs font-mono overflow-x-auto max-h-96 overflow-y-auto">
-                        {history.find(h => h.id === showSql)?.sql || ""}
-                    </pre>
-                </div>
-            )}
-        </Section>
-    )
-}
-
-/* ------------------------------------------------------------------ */
-
 const AdminPanel = ({ currentUserId }: { currentUserId: string }) => {
     const { refreshDocuments: refreshSidebarDocuments } = useWorkspace()
 
     const [clients, setClients] = useState<Client[]>([])
     const [users, setUsers] = useState<AdminUser[]>([])
     const [documents, setDocuments] = useState<DocumentResponse[]>([])
-    const [queryHistory, setQueryHistory] = useState<AdminHistoryItem[]>([])
+    const [databases, setDatabases] = useState<AvailableDatabase[]>([])
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState<string | null>(null)
-    const [queryHistoryLoading, setQueryHistoryLoading] = useState(false)
 
     const loadClients = useCallback(async () => {
         setClients(await listAdminClients())
@@ -908,48 +854,33 @@ const AdminPanel = ({ currentUserId }: { currentUserId: string }) => {
         await refreshSidebarDocuments()
     }, [refreshSidebarDocuments])
 
-    const loadQueryHistory = useCallback(async () => {
-        setQueryHistoryLoading(true)
-        try {
-                const history = await adminListHistory()
-            setQueryHistory(history)
-        } catch (err) {
-            console.error("Failed to load query history:", err)
-        } finally {
-            setQueryHistoryLoading(false)
-        }
+    const loadDatabases = useCallback(async () => {
+        setDatabases(await getAvailableDatabases())
     }, [])
 
-        const handleDeleteHistory = async (id: string) => {
-            await deleteHistory(id)
-            await loadQueryHistory()
-        }
+    const handleUserChanged = (updated: AdminUser) =>
+        setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
 
-        const handleUserChanged = (updated: AdminUser) =>
-            setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
-
-        useEffect(() => {
-        Promise.all([listAdminClients(), listAdminUsers(), getAllDocuments()])
-            .then(([clientList, userList, documentList]) => {
+    useEffect(() => {
+        Promise.all([
+            listAdminClients(),
+            listAdminUsers(),
+            getAllDocuments(),
+            getAvailableDatabases(),
+        ])
+            .then(([clientList, userList, documentList, databaseList]) => {
                 setClients(clientList)
                 setUsers(userList)
                 setDocuments(documentList)
+                setDatabases(databaseList)
             })
             .catch((err) => setLoadError(getApiErrorMessage(err)))
             .finally(() => setLoading(false))
     }, [])
 
-    useEffect(() => {
-            let active = true
-                const load = async () => {
-                    await loadQueryHistory()
-                    if (!active) return
-                }
-                load()
-                return () => {
-                    active = false
-                }
-            }, [loadQueryHistory])
+    const refreshAll = useCallback(async () => {
+        await Promise.all([loadClients(), loadUsers(), loadDocuments(), loadDatabases()])
+    }, [loadClients, loadUsers, loadDocuments, loadDatabases])
 
     return (
         <TooltipProvider>
@@ -958,7 +889,7 @@ const AdminPanel = ({ currentUserId }: { currentUserId: string }) => {
                     <div className="mb-6">
                         <h1 className="text-xl font-semibold tracking-tight">Administration</h1>
                         <p className="mt-1 text-sm text-muted-foreground">
-                            Manage clients, users and document access.
+                            Manage users, database assignments and document access.
                         </p>
                     </div>
 
@@ -971,47 +902,26 @@ const AdminPanel = ({ currentUserId }: { currentUserId: string }) => {
                         <>
                             <Message error={loadError} />
 
-                            <Tabs defaultValue="clients" className="flex flex-col gap-4">
+                            <Tabs defaultValue="users" className="flex flex-col gap-4">
                                 <TabsList className="w-fit">
-                                    <TabsTrigger value="clients">Clients</TabsTrigger>
-                                    <TabsTrigger value="users">Users</TabsTrigger>
-                                    <TabsTrigger value="documents">Documents</TabsTrigger>
-                                                                    <TabsTrigger value="query-history">Query History</TabsTrigger>
-                                                                </TabsList>
+                                    <TabsTrigger value="users">
+                                        <Users className="h-4 w-4 mr-2" />
+                                        Users
+                                    </TabsTrigger>
+                                </TabsList>
 
-                                                                <TabsContent value="clients">
-                                                                    <ClientsSection
-                                                                        clients={clients}
-                                                                        onCreated={loadClients}
-                                                                    />
-                                                                </TabsContent>
-
-                                                                <TabsContent value="users">
-                                                                    <UsersSection
-                                                                        users={users}
-                                                                        clients={clients}
-                                                                        currentUserId={currentUserId}
-                                                                        onCreated={loadUsers}
-                                                                        onChanged={handleUserChanged}
-                                                                    />
-                                                                </TabsContent>
-
-                                                                <TabsContent value="documents">
-                                                                    <DocumentsSection
-                                                                        documents={documents}
-                                                                        users={users}
-                                                                        onChanged={loadDocuments}
-                                                                    />
-                                                                </TabsContent>
-
-                                                                <TabsContent value="query-history">
-                                                                    <QueryHistorySection
-                                                                        history={queryHistory}
-                                                                        loading={queryHistoryLoading}
-                                                                        onRefresh={loadQueryHistory}
-                                                                                                                                        onDelete={handleDeleteHistory}
-                                                                                                                                    />
-                                                                                                                                </TabsContent>
+                                <TabsContent value="users">
+                                    <UsersSection
+                                        users={users}
+                                        clients={clients}
+                                        documents={documents}
+                                        databases={databases}
+                                        currentUserId={currentUserId}
+                                        onRefreshUsers={loadUsers}
+                                        onRefreshDocuments={loadDocuments}
+                                        onUserChanged={handleUserChanged}
+                                    />
+                                </TabsContent>
                             </Tabs>
                         </>
                     )}

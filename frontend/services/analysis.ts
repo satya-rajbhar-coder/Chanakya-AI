@@ -40,11 +40,9 @@ const send = (path: string, method: string, body?: unknown): Promise<Response> =
 
 export interface AnalysisClient {
     id: string
-    code: string
     name: string
     client_identifier: string
     database_name: string
-    description: string | null
     is_active: boolean
 }
 

@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @plugin "@tailwindcss/typography";
+@import "katex/dist/katex.min.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -184,9 +185,9 @@
     @apply bg-muted-foreground/30;
   }
 
-  /* Focus styles - no visible ring on click/keyboard focus */
+  /* Focus styles - visible ring for keyboard accessibility */
   *:focus-visible {
-    @apply outline-none;
+      @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 
   /* Selection */
@@ -197,6 +198,54 @@
   .dark ::selection {
     @apply bg-primary/30 text-primary-foreground;
   }
+
+    /* KaTeX custom styles for dark mode */
+    .katex {
+      font-size: 1em !important;
+    }
+
+    .katex-display {
+      overflow-x: auto;
+      overflow-y: hidden;
+      margin: 1em 0;
+    }
+
+    .katex-display > .katex {
+      white-space: nowrap;
+    }
+
+    /* Dark mode KaTeX colors */
+    .dark .katex {
+      color: var(--foreground);
+    }
+
+    .dark .katex .katex-mathml {
+      color: var(--foreground);
+    }
+
+    /* Fix KaTeX spacing in inline mode */
+    .katex-inline {
+      display: inline-block;
+      vertical-align: baseline;
+    }
+
+    /* Code block shiki styles */
+    .shiki {
+      background-color: transparent !important;
+    }
+
+    .shiki .line {
+      display: block;
+      padding-inline: 1rem;
+    }
+
+    .shiki .line:first-child {
+      padding-top: 0.5rem;
+    }
+
+    .shiki .line:last-child {
+      padding-bottom: 0.5rem;
+    }
 }
 
 /* Premium loading skeleton */

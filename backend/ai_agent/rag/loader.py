@@ -1,17 +1,16 @@
 import io
 import logging
-import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from docling.chunking import HybridChunker
 from langchain_docling import DoclingLoader
 from langchain_docling.loader import ExportType
 from pypdf import PdfReader
 
 SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md"}
-MAX_TEXT_BLOCK_CHARS = 3000
-
 logger = logging.getLogger(__name__)
 
 
@@ -28,80 +27,85 @@ class PageText:
     page: int | None
     text: str
     element_type: str = "text"
-    metadata: dict[str, str | int] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 def _clean(text: str) -> str:
     return text.replace("\x00", "").replace("\r\n", "\n").strip()
 
 
-def _is_table(block: str) -> bool:
-    lines = [l for l in block.splitlines() if l.strip()]
-    return len(lines) >= 2 and "|" in lines[0] and "|" in lines[1]
-
-
-def _markdown_to_elements(markdown: str, base_metadata: dict) -> list[PageText]:
-    """Split a whole-document markdown string into tables and text groups."""
-    blocks = [b.strip() for b in re.split(r"\n\s*\n", markdown) if b.strip()]
-    elements: list[PageText] = []
-    buffer: list[str] = []
-    size = 0
-
-    def flush() -> None:
-        nonlocal buffer, size
-        if buffer:
-            elements.append(
-                PageText(
-                    page=None,
-                    text="\n\n".join(buffer),
-                    element_type="text",
-                    metadata=base_metadata,
-                )
-            )
-        buffer, size = [], 0
-
-    for block in blocks:
-        if _is_table(block):
-            flush()
-            elements.append(
-                PageText(
-                    page=None,
-                    text=block,
-                    element_type="table",
-                    metadata=base_metadata,
-                )
-            )
-            continue
-        if size + len(block) > MAX_TEXT_BLOCK_CHARS:
-            flush()
-        buffer.append(block)
-        size += len(block)
-    flush()
-    return elements
-
-
 def _read_pdf_docling(filename: str, data: bytes) -> list[PageText]:
     temp_path: str | None = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            suffix=".pdf",
+            delete=False,
+        ) as temp_file:
             temp_file.write(data)
             temp_path = temp_file.name
 
-        loader = DoclingLoader(file_path=temp_path, export_type=ExportType.MARKDOWN)
+        # Heading-aware, token-aware chunking
+        chunker = HybridChunker(
+            max_tokens=512,
+            merge_peers=True,
+        )
+
+        loader = DoclingLoader(
+            file_path=temp_path,
+            export_type=ExportType.DOC_CHUNKS,
+            chunker=chunker,
+        )
+
         documents = loader.load()
 
-        pages: list[PageText] = []
+        elements: list[PageText] = []
+
         for document in documents:
             text = _clean(document.page_content)
             if not text:
                 continue
-            metadata = {
-                str(k): v
-                for k, v in (document.metadata or {}).items()
-                if isinstance(v, (str, int)) and str(k) != "source"
-            }
-            pages.extend(_markdown_to_elements(text, metadata))
-        return pages
+
+            metadata = document.metadata or {}
+            dl_meta = metadata.get("dl_meta", {}) or {}
+
+            headings = dl_meta.get("headings") or []
+            captions = dl_meta.get("captions") or []
+
+            # Extract page number when available
+            page_number: int | None = None
+            doc_items = dl_meta.get("doc_items", [])
+            for item in doc_items:
+                provenance = item.get("prov", [])
+                if provenance:
+                    page_number = provenance[0].get("page_no")
+                    if page_number is not None:
+                        break
+
+            # Identify tables
+            element_type = (
+                "table"
+                if any(
+                    item.get("label") == "table"
+                    for item in doc_items
+                )
+                else "text"
+            )
+
+            elements.append(
+                PageText(
+                    page=page_number,
+                    text=text,
+                    element_type=element_type,
+                    metadata={
+                        "headings": headings,
+                        "captions": captions,
+                        "source": filename,
+                        "element_type": element_type,
+                    },
+                )
+            )
+
+        return elements
 
     except Exception as exc:
         raise UnsupportedFileError(

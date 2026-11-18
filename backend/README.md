@@ -18,6 +18,17 @@ Every successful analysis query is stored and shown in the **History** panel; us
 - Upload processing and embedding occur during the HTTP request; allow sufficient reverse-proxy timeout. Legacy unscoped uploads can be assigned via the admin document-scope API; vectors are reused without re-embedding.
 - `schema_catalog` and document vector store reside in the app PostgreSQL database, not in the analysis database. The catalog is never created/rebuilt by an analyst query.
 
+## Production-grade additions
+
+- **Docker**: `Dockerfile` (multi-stage, non-root user) and `docker-compose.yml` (Postgres + backend) for local dev and deployment.
+- **Structured logging**: JSON-formatted logs to stdout with request IDs and response times.
+- **Request tracing**: `X-Request-ID` and `X-Response-Time-Ms` headers on every response; unhandled errors return a structured 500 with the request ID.
+- **Health checks**: `GET /health` (liveness) and `GET /health/ready` (readiness).
+- **Security headers**: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `X-XSS-Protection` on all responses.
+- **Compression**: GZip for responses >= 1 KB.
+- **Global exception handlers**: standardized JSON error responses for `SQLAlchemyError` (502) and `ValueError` (400).
+- **Rate limiting**: in-memory sliding window per authenticated user/IP (configurable via `RATE_LIMIT_*` env vars).
+
 ## Tests
 
 `uv run --with pytest --with httpx python -m pytest -q`

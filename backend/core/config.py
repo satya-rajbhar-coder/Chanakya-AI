@@ -17,10 +17,15 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
     SQL_ECHO: bool = False
 
-    GROQ_MODEL_NAME: str = "openai/gpt-oss-120b"
+    GROQ_MODEL_NAME: str = "openai/gpt-oss-20b"
     GROQ_API_KEY: SecretStr
     GOOGLE_API_KEY: SecretStr
     LLM_TIMEOUT_SECONDS: float = 120.0
+
+    # XAI (Grok) fallback configuration
+    XAI_API_KEY: SecretStr | None = None
+    XAI_MODEL_NAME: str = "grok-beta"
+    XAI_BASE_URL: str = "https://api.x.ai/v1"
 
     GOOGLE_EMBEDDING_MODEL: str
     VECTOR_STORE_URL: str
@@ -33,9 +38,6 @@ class Settings(BaseSettings):
     MAX_UPLOAD_MB: int = 20
 
     ANALYSIS_DB_URL_TEMPLATE: str
-    # Foreign schema (postgres_fdw) present in EVERY client database that
-    # exposes the shared main-database tables. All database communication
-    # happens through the client connections only.
     ANALYSIS_MAIN_DB_SCHEMA: str = "pollmatrix"
     ANALYSIS_MAX_COLUMNS: int = 0
     ANALYSIS_SCHEMA_TABLE: str = "schema_catalog"
@@ -47,6 +49,14 @@ class Settings(BaseSettings):
     ANALYSIS_EXPORT_TIMEOUT_MS: int = 300_000
     ANALYSIS_EXPORT_MAX_ROWS: int = 1_000_000
     ANALYSIS_TOKEN_MINUTES: int = 120
+
+    # API rate limiting (requests per window per authenticated user)
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_REQUESTS: int = 30
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+    # Redis for distributed rate limiting (optional)
+    REDIS_URL: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

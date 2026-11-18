@@ -67,5 +67,8 @@ class IntelligenceResponse(BaseModel):
     user_message_id: UUID | None = None
     assistant_message_id: UUID | None = None
     created_at: datetime
+    # Optional clickable suggestion (ChatGPT-style). When present, the
+    # frontend can render it as a button that re-sends the question.
+    suggested_question: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

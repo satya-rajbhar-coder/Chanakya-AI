@@ -3,6 +3,7 @@
 import React, { useState } from "react"
 import type { ChangeEvent, Dispatch, SetStateAction } from "react"
 import { useRouter } from "next/navigation"
+import { ShieldCheck } from "lucide-react"
 
 import {
     Card,
@@ -73,21 +74,26 @@ const LoginForm = () => {
     return (
         <form
             onSubmit={handleSubmit}
-            className="w-full h-screen flex items-center 
-            justify-center bg-transparent"
+            className="w-full min-h-screen flex items-center justify-center bg-transparent px-4 sm:px-0"
         >
             <Card className="w-full max-w-sm">
                 <CardHeader className="text-center">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                        <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                            <ShieldCheck className="size-5" />
+                        </div>
+                        <h1 className="text-2xl font-bold tracking-tight text-foreground">Chanakya AI</h1>
+                    </div>
                     <CardTitle className="text-2xl font-black">
-                        Login
+                        Sign in to your account
                     </CardTitle>
 
-                    <CardDescription>
-                        Upload & ask anything from your PDF
+                    <CardDescription className="text-sm">
+                        Access your campaign intelligence dashboard
                     </CardDescription>
                 </CardHeader>
 
-                <CardContent>
+                <CardContent className="space-y-4">
                     <Field>
                         <FieldLabel htmlFor="login-input-field-email">
                             Email
@@ -95,47 +101,63 @@ const LoginForm = () => {
 
                         <Input
                             id="login-input-field-email"
-                            type="email" value={email}
+                            type="email"
+                            value={email}
                             onChange={(e) => handleChange(e, setEmail, setError)}
-                            placeholder="Enter your email" required
-                            disabled={loading} autoComplete="email"
+                            placeholder="Enter your email"
+                            required
+                            disabled={loading}
+                            autoComplete="email"
                         />
+                    </Field>
 
+                    <Field>
                         <FieldLabel htmlFor="login-input-field-password">
                             Password
                         </FieldLabel>
 
                         <Input
                             id="login-input-field-password"
-                            type="password" value={password}
+                            type="password"
+                            value={password}
                             onChange={(e) => handleChange(e, setPassword, setError)}
                             placeholder="Enter password"
-                            disabled={loading} required
+                            required
+                            disabled={loading}
                             autoComplete="current-password"
                         />
-
-                        {error && (
-                            <FieldDescription className="text-center text-red-400 font-semibold">
-                                {error}
-                            </FieldDescription>
-                        )}
-
                     </Field>
+
+                    {error && (
+                        <FieldDescription className="text-sm text-destructive">
+                            {error}
+                        </FieldDescription>
+                    )}
+
                     <Button
-                        variant="outline"
+                        variant="default"
                         size="lg"
-                        className="w-full mt-4"
+                        className="w-full mt-2"
                         type="submit"
                         disabled={loading}
                     >
-                        {loading ? "Loading..." : "Login"}
+                        {loading ? "Signing in…" : "Sign in"}
                     </Button>
                 </CardContent>
 
-                <CardFooter className="flex items-center justify-center">
-                    <p className="text-center text-sm text-muted-foreground">
-                        Accounts are created by an administrator.
-                    </p>
+                <CardFooter className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between text-sm">
+                        <p className="text-muted-foreground">
+                            Accounts are created by an administrator.
+                        </p>
+                        <button
+                            type="button"
+                            className="text-primary underline underline-offset-4 hover:text-primary/80"
+                            onClick={() => setError("Contact your administrator to reset your password.")}
+                        >
+                            Forgot password?
+                        </button>
+                    </div>
                 </CardFooter>
             </Card>
         </form>

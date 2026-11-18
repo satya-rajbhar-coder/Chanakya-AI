@@ -32,9 +32,14 @@ def assigned_clients(user: CurrentUser, db: Session = Depends(get_db)):
     return [ClientResponse.model_validate(c) for c in clients]
 
 
-@router.post("/query", response_model=AnalysisResponse)
+@router.post("/query")
 def ask(data: AskRequest, user: CurrentUser, svc: AnalysisService = Depends(_service)):
-    return svc.ask(data, user.id)
+    result = svc.ask(data, user.id, user=user)
+    if not result.get("success", True):
+        # Database query failed: return restructured question suggestion
+        # instead of an error response.
+        return result
+    return AnalysisResponse(**result)
 
 
 @router.post("/export")

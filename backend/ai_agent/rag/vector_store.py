@@ -6,7 +6,7 @@ from langchain_postgres.v2.engine import PGEngine
 from langchain_postgres.v2.vectorstores import PGVectorStore
 
 from core.config import settings
-from rag.embeddings import get_google_embeddings
+from ai_agent.rag.embeddings import get_google_embeddings, get_ollama_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +18,8 @@ METADATA_COLUMNS = [
     "user_id",
     "document_id",
     "filename",
-    "source_hash",
-    "content_hash",
     "page",
     "chunk_index",
-    "total_chunks",
-    "element_type",
 ]
 
 
@@ -45,12 +41,8 @@ def init_vector_store() -> None:
                 Column("user_id", "TEXT"),
                 Column("document_id", "TEXT"),
                 Column("filename", "TEXT"),
-                Column("source_hash", "TEXT"),
-                Column("content_hash", "TEXT"),
                 Column("page", "INTEGER"),
                 Column("chunk_index", "INTEGER"),
-                Column("total_chunks", "INTEGER"),
-                Column("element_type", "TEXT"),
             ],
             overwrite_existing=False,
         )

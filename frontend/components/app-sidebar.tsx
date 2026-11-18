@@ -1,6 +1,6 @@
 "use client"
 
-import { LogOut, SquarePen, Trash2, Moon, Sun, ShieldCheck, Menu, MessageCircle } from "lucide-react"
+import { LogOut, SquarePen, Trash2, Moon, Sun, ShieldCheck, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 
@@ -26,8 +26,8 @@ import { getApiErrorMessage } from "@/services/error"
 import { cn } from "@/lib/utils"
 import { useDialogs } from "@/components/ui/dialog-provider"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/components/ui/toast-provider"
 
 interface AppSidebarProps {
     user: UserResponse | null
@@ -43,7 +43,8 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
 
     const isAdmin = user?.role === "admin"
 
-    const { confirm, alert } = useDialogs()
+    const { confirm } = useDialogs()
+    const { showToast } = useToast()
 
     const handleNewChat = () => { router.push("/") }
 
@@ -72,9 +73,10 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
                 router.replace("/")
             }
         } catch (error) {
-            await alert({
+            showToast({
                 title: "Could not delete conversation",
                 description: getApiErrorMessage(error),
+                type: "error",
             })
         }
     }
@@ -92,9 +94,10 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
         try {
             await logout()
         } catch (error) {
-            await alert({
+            showToast({
                 title: "Could not log out",
                 description: getApiErrorMessage(error),
+                type: "error",
             })
             return
         }
@@ -104,8 +107,7 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
     }
 
     return (
-        <TooltipProvider>
-            <Sidebar collapsible="icon">
+        <Sidebar collapsible="icon">
                 <SidebarHeader>
                     <div className="flex items-center justify-between group-data-[collapsible=icon]:justify-center p-3">
                         <div className="flex items-center gap-3">
@@ -262,7 +264,6 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
                     </div>
                 </SidebarFooter>
             </Sidebar>
-        </TooltipProvider>
     )
 }
 

@@ -7,14 +7,14 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from llm.service import generate_reply, is_not_found
+from ai_agent.llm.service import generate_reply, is_not_found
 from modules.analysis.models import AnalysisQuery
 from modules.conversations.models import DEFAULT_TITLE
 from modules.conversations.services import ConversationService
 from modules.documents.repository import DocumentRepository
-from modules.intelligence.models import ChatAnalysisQuery
+from ai_agent.intelligence.models import ChatAnalysisQuery
 from modules.users.models import User
-from rag.service import (
+from ai_agent.rag.service import (
     RetrievedChunk,
     format_context,
     format_sources,

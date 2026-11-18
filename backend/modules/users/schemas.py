@@ -12,6 +12,10 @@ class UserUpdate(BaseModel):
     name: Name | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
     current_password: str | None = Field(default=None, max_length=128)
+    party_name: str | None = Field(default=None, max_length=100)
+    ward_no: int | None = Field(default=None)
+    assembly_no: str | None = Field(default=None, max_length=50)
+    parliamentary_constituency: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def require_current_password(self):
@@ -25,6 +29,11 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
+    hierarchy_level: int | None = None
     is_active: bool
+    party_name: str | None = None
+    ward_no: int | None = None
+    assembly_no: str | None = None
+    parliamentary_constituency: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

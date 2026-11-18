@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from core.security import hash_password, verify_password
 from modules.auth.repository import RefreshTokenRepository
 from modules.documents.repository import DocumentRepository
-from rag.service import delete_user_chunks
+from ai_agent.rag.service import delete_user_chunks
 
 from .models import User
 from .repository import UserRepository
@@ -35,6 +35,18 @@ class UserService:
 
         if data.name is not None:
             user.name = data.name
+
+        if data.party_name is not None:
+            user.party_name = data.party_name
+
+        if data.ward_no is not None:
+            user.ward_no = data.ward_no
+
+        if data.assembly_no is not None:
+            user.assembly_no = data.assembly_no
+
+        if data.parliamentary_constituency is not None:
+            user.parliamentary_constituency = data.parliamentary_constituency
 
         if data.password is not None:
             if not verify_password(data.current_password or "", user.hashed_password):

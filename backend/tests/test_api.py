@@ -16,7 +16,7 @@ from modules.analysis import router as analysis_router
 from modules.analysis import service as analysis_service
 from modules.analysis.models import Client, UserClient
 from modules.conversations.models import Conversation
-from modules.intelligence.repository import IntelligenceRepository
+from ai_agent.intelligence.repository import IntelligenceRepository
 from modules.messages.models import Message, Role
 from modules.messages.repository import MessageRepository
 from modules.messages.schemas import MessageResponse
@@ -37,9 +37,24 @@ def client(demo_db, monkeypatch):
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     Base.metadata.create_all(app_engine)
-    user = User(id=uuid4(), name="Analyst", email="analyst@example.com", hashed_password="unused")
-    client1 = Client(code="CLIENT1", name="Test Client", database_name="demo", client_identifier="client1")
-    client2 = Client(code="CLIENT2", name="Other Client", database_name="not_configured", client_identifier="client2")
+    user = User(
+        id=uuid4(),
+        name="Analyst",
+        email="analyst@example.com",
+        hashed_password="unused",
+    )
+    client1 = Client(
+        code="CLIENT1",
+        name="Test Client",
+        database_name="demo",
+        client_identifier="client1",
+    )
+    client2 = Client(
+        code="CLIENT2",
+        name="Other Client",
+        database_name="not_configured",
+        client_identifier="client2",
+    )
     with Session(app_engine, expire_on_commit=False) as db:
         db.add_all([user, client1, client2])
         db.flush()
@@ -48,18 +63,36 @@ def client(demo_db, monkeypatch):
         assigned_id, unassigned_id = client1.id, client2.id
 
     # Mock the service methods
-    def mock_plan_and_run(self, question, user_id, client_id=None):
+    def mock_plan_and_run(
+        self, question, user_id, client_id=None, user=None, user_scope=None
+    ):
         if client_id == unassigned_id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Client is not assigned")
-        return ("demo", assigned_id, ["items"], "All items", "SELECT id, name FROM items ORDER BY id",
-                {"columns": ["id", "name"], "rows": [[i, f"item{i}"] for i in range(1, 101)], "page": 0,
-                 "page_size": 100, "has_more": True, "total_time_ms": 10.0})
+        return {
+            "success": True,
+            "database": "demo",
+            "client_id": assigned_id,
+            "tables": ["items"],
+            "title": "All items",
+            "sql": "SELECT id, name FROM items ORDER BY id",
+            "result": {
+                "columns": ["id", "name"],
+                "rows": [[i, f"item{i}"] for i in range(1, 101)],
+                "page": 0,
+                "page_size": 100,
+                "has_more": True,
+                "total_time_ms": 10.0,
+            },
+        }
 
-    monkeypatch.setattr(analysis_service.AnalysisService, "plan_and_run", mock_plan_and_run)
+    monkeypatch.setattr(
+        analysis_service.AnalysisService, "plan_and_run", mock_plan_and_run
+    )
 
     from modules.admin.router import router as admin_router
     from modules.auth.router import router as auth_router
     from modules.documents.router import router as documents_router
+
     app = FastAPI()
     app.include_router(analysis_router.router)
     app.include_router(admin_router)
@@ -78,7 +111,9 @@ def client(demo_db, monkeypatch):
 
 def test_query(client):
     http, _, client_id, _, _ = client
-    res = http.post("/analysis/query", json={"question": "list items", "client_id": str(client_id)})
+    res = http.post(
+        "/analysis/query", json={"question": "list items", "client_id": str(client_id)}
+    )
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["database"] == "demo"
@@ -143,7 +178,9 @@ def test_legacy_chat_turn_links_to_its_saved_query(client):
             user,
         )
 
-    assistant_message = next(message for message in messages if message.role == Role.ASSISTANT)
+    assistant_message = next(
+        message for message in messages if message.role == Role.ASSISTANT
+    )
     assert str(assistant_message.analysis_query_id) == query_id
     response = MessageResponse.model_validate(assistant_message)
     assert str(response.analysis_query_id) == query_id
@@ -182,7 +219,9 @@ def test_new_chat_turn_persists_its_query_link(client):
 
 def test_unassigned_client_rejected(client):
     http, user_id, assigned_id, other_id, engine = client
-    res = http.post("/analysis/query", json={"question": "list", "client_id": str(other_id)})
+    res = http.post(
+        "/analysis/query", json={"question": "list", "client_id": str(other_id)}
+    )
     assert res.status_code == 403
 
 
@@ -194,8 +233,18 @@ def test_unsafe_sql_from_llm_is_blocked(monkeypatch, demo_db):
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     Base.metadata.create_all(app_engine)
-    user = User(id=uuid4(), name="Analyst", email="analyst@example.com", hashed_password="unused")
-    client1 = Client(code="CLIENT1", name="Test Client", database_name="demo", client_identifier="client1")
+    user = User(
+        id=uuid4(),
+        name="Analyst",
+        email="analyst@example.com",
+        hashed_password="unused",
+    )
+    client1 = Client(
+        code="CLIENT1",
+        name="Test Client",
+        database_name="demo",
+        client_identifier="client1",
+    )
     with Session(app_engine, expire_on_commit=False) as db:
         db.add_all([user, client1])
         db.flush()
@@ -213,6 +262,7 @@ def test_unsafe_sql_from_llm_is_blocked(monkeypatch, demo_db):
     from modules.admin.router import router as admin_router
     from modules.auth.router import router as auth_router
     from modules.documents.router import router as documents_router
+
     app = FastAPI()
     app.include_router(analysis_router.router)
     app.include_router(admin_router)
@@ -227,7 +277,13 @@ def test_unsafe_sql_from_llm_is_blocked(monkeypatch, demo_db):
     app.dependency_overrides[get_db] = session
     http = TestClient(app)
 
-    res = http.post("/analysis/query", json={"question": "drop it", "client_id": str(assigned_id)})
-    assert res.status_code == 422
+    res = http.post(
+        "/analysis/query", json={"question": "drop it", "client_id": str(assigned_id)}
+    )
+    # Unsafe SQL now returns a restructured question suggestion instead of 422
+    assert res.status_code == 200
+    body = res.json()
+    assert "restructured_question" in body
+    assert body["success"] is False
 
     app_engine.dispose()

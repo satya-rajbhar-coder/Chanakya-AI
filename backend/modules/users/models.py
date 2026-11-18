@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.base import Base
@@ -31,8 +31,13 @@ class User(Base):
         String(255),
         nullable=False,
     )
-    role: Mapped[str] = mapped_column(String(10), nullable=False, server_default="user")
+    role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="user")
+    hierarchy_level: Mapped[int | None] = mapped_column(nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    party_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ward_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    assembly_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    parliamentary_constituency: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

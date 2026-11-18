@@ -9,14 +9,19 @@ export interface AuthMessage {
     message: string
 }
 
-export type UserRole = "admin" | "user";
+export type UserRole = "admin" | "karyakarta" | "corporator" | "aamdar" | "khasdar" | "user";
 
 export interface UserResponse {
     id: string;
     name: string;
     email: string;
     role: UserRole;
+    hierarchy_level: number | null;
     is_active: boolean;
+    party_name: string | null;
+    ward_no: string | null;
+    assembly_no: string | null;
+    parliamentary_constituency: string | null;
 }
 
 

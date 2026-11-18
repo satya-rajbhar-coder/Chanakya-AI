@@ -1,11 +1,13 @@
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.dependencies import CurrentUser
+from core.rate_limit import rate_limit_dependency
 from database.session import get_db
-from modules.intelligence.schemas import IntelligenceRequest, IntelligenceResponse
-from modules.intelligence.service import IntelligenceService
+from ai_agent.intelligence.schemas import IntelligenceRequest, IntelligenceResponse
+from ai_agent.intelligence.service import IntelligenceService
 
 router = APIRouter(prefix="/intelligence", tags=["Intelligence"])
 
@@ -23,10 +25,14 @@ def ask_intelligence(
         description="Existing conversation id to continue the chat; omitted creates a new one.",
     ),
     svc: IntelligenceService = Depends(_service),
+    _rate_limit: Annotated[None, Depends(rate_limit_dependency)] = None,
 ):
     """Hybrid question-answering: routes to database (SQL), documents (RAG),
     both, or indicates the question cannot be answered from available sources.
-    Chats are persisted to the conversations/messages tables."""
+    Chats are persisted to the conversations/messages tables.
+
+    Rate-limited per authenticated user to prevent request dumping.
+    """
     try:
         return svc.ask(
             data.question,

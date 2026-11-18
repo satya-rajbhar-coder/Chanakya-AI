@@ -26,15 +26,11 @@ import {
     askIntelligence,
     type IntelligenceResponse,
 } from "@/services/intelligence"
+import { getApiErrorMessage } from "@/services/error"
 import { generateId } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-    Tooltip as TooltipComp,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import {
     Sparkles,
     FileText,
@@ -47,6 +43,7 @@ import {
     X,
     ChevronDown,
     ChevronUp,
+    RotateCcw,
 } from "lucide-react"
 
 import ReactMarkdown from "react-markdown"
@@ -55,14 +52,14 @@ import remarkGfm from "remark-gfm"
 import { markdownComponents } from "@/components/markdown/MarkdownComponents"
 
 const COLORS = [
-    "#3b82f6",
-    "#ef4444",
-    "#10b981",
-    "#f59e0b",
-    "#8b5cf6",
-    "#ec4899",
-    "#6366f1",
-    "#14b8a6",
+    "var(--chart-1)",
+    "var(--chart-2)",
+    "var(--chart-3)",
+    "var(--chart-4)",
+    "var(--chart-5)",
+    "var(--chart-1)",
+    "var(--chart-2)",
+    "var(--chart-3)",
 ]
 
 interface Turn {
@@ -145,7 +142,7 @@ function BarChartWidget({ data, xField, yField }: { data: { name: string; value:
                         <YAxis className="text-[10px] fill-muted-foreground" />
                         <Tooltip cursor={{ strokeDasharray: "3 3" }} />
                         <Legend />
-                        <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="value" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ResponsiveContainer>
             </div>
@@ -171,7 +168,7 @@ function PieChartWidget({ data, xField, yField }: { data: { name: string; value:
                             cx="50%"
                             cy="50%"
                             outerRadius={80}
-                            fill="#8884d8"
+                            fill="var(--chart-1)"
                             label
                         >
                             {data.map((entry, index) => (
@@ -199,7 +196,7 @@ function LineChartWidget({ data, xField, yField }: { data: { name: string; value
                         <YAxis className="text-[10px] fill-muted-foreground" />
                         <Tooltip />
                         <Legend />
-                        <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot />
+                        <Line type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={2} dot />
                     </LineChart>
                 </ResponsiveContainer>
             </div>
@@ -335,6 +332,7 @@ export default function DashboardPage() {
     const [conversationId, setConversationId] = useState<string | null>(null)
     const [input, setInput] = useState("")
     const bottomRef = useRef<HTMLDivElement>(null)
+    const prevTurnCountRef = useRef(0)
 
     // No client picker on this page; the backend resolves the user's single
     // assigned client (or asks for one when several are assigned).
@@ -342,17 +340,25 @@ export default function DashboardPage() {
 
     const sendingNow = turns.some((t) => t.status === "loading")
 
+    // Scroll to bottom only when a new turn is added, not on every status update.
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+        if (turns.length > prevTurnCountRef.current) {
+            prevTurnCountRef.current = turns.length
+            bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+        }
     }, [turns])
 
     const patch = (id: string, change: Partial<Turn>) =>
         setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, ...change } : t)))
 
-    const handleSend = async (question: string) => {
+    const handleSend = async (question: string, retryId?: string) => {
         if (sendingNow) return
-        const id = generateId()
-        setTurns((prev) => [...prev, { id, question, status: "loading" }])
+        const id = retryId ?? generateId()
+        if (retryId) {
+            patch(id, { status: "loading", error: undefined })
+        } else {
+            setTurns((prev) => [...prev, { id, question, status: "loading" }])
+        }
 
         try {
             const data = await askIntelligence({
@@ -365,7 +371,7 @@ export default function DashboardPage() {
             }
             patch(id, { status: "done", data })
         } catch (err) {
-            const message = err instanceof Error ? err.message : "Something went wrong"
+            const message = getApiErrorMessage(err)
             patch(id, { status: "error", error: message })
         }
     }
@@ -386,17 +392,7 @@ export default function DashboardPage() {
                     <DatabaseResultCard response={data} />
                 ) : null}
                 {data.document ? (
-                    <>
-                        <div className="prose prose-sm text-foreground max-w-none">
-                            <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={markdownComponents}
-                            >
-                                {data.document.answer ?? ""}
-                            </ReactMarkdown>
-                        </div>
-                        <DocumentSourcesCard sources={data.document.sources} />
-                    </>
+                    <DocumentSourcesCard sources={data.document.sources} />
                 ) : null}
                 {data.sources?.length && !data.document ? (
                     <DocumentSourcesCard sources={data.sources} />
@@ -424,24 +420,20 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
-                        <TooltipComp>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                        setTurns([])
-                                        setInput("")
-                                    }}
-                                    disabled={sendingNow}
-                                    className="h-9 gap-2 text-muted-foreground hover:text-primary border-border"
-                                >
-                                    <Plus className="size-4" />
-                                    <span className="hidden sm:inline font-medium">New chat</span>
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">Start new chat</TooltipContent>
-                        </TooltipComp>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setTurns([])
+                                setInput("")
+                            }}
+                            disabled={sendingNow}
+                            className="h-9 gap-2 text-muted-foreground hover:text-primary border-border"
+                            title="Start new chat"
+                        >
+                            <Plus className="size-4" />
+                            <span className="hidden sm:inline font-medium">New chat</span>
+                        </Button>
                     </div>
                 </div>
 
@@ -484,9 +476,26 @@ export default function DashboardPage() {
                                 </div>
                                 <div className="shrink-0">
                                     {turn.status === "error" && (
-                                        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => handleSend(turn.question)}>
-                                            <AlertCircle className="size-3.5" />
-                                        </Button>
+                                        <div
+                                            role="alert"
+                                            className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-destructive"
+                                        >
+                                            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                                            <div>
+                                                <p className="text-sm leading-relaxed">
+                                                    {turn.error ?? "We couldn't send your message. Please try again."}
+                                                </p>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="mt-2 h-8 border-destructive/30 text-destructive hover:bg-destructive/10"
+                                                    onClick={() => handleSend(turn.question, turn.id)}
+                                                >
+                                                    <RotateCcw className="size-3" />
+                                                    Try again
+                                                </Button>
+                                            </div>
+                                        </div>
                                     )}
                                     {turn.status === "done" && (
                                         <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => removeTurn(turn.id)}>

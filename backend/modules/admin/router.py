@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from api.dependencies import AdminUser
@@ -10,6 +10,7 @@ from modules.admin.schemas import (
     AccountResponse,
     AccountUpdate,
     AssignmentsUpdate,
+    AvailableDatabase,
     ClientCreate,
     ClientResponse,
     ClientUpdate,
@@ -22,6 +23,8 @@ from modules.admin.services import (
     create_user,
     delete_client,
     delete_user,
+    deactivate_user,
+    get_available_databases,
     list_clients,
     list_users,
     update_client,
@@ -30,6 +33,12 @@ from modules.admin.services import (
 from modules.documents.schemas import DocumentResponse
 
 router = APIRouter(prefix="/admin", tags=["Administration"])
+
+
+@router.get("/databases", response_model=list[AvailableDatabase])
+def available_databases(admin: AdminUser, db: Session = Depends(get_db)):
+    """Get all available databases from the analysis DB URL template with assignment status."""
+    return get_available_databases(db)
 
 
 @router.get("/clients", response_model=list[ClientResponse])
@@ -80,10 +89,20 @@ def update_user_endpoint(
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_endpoint(
+    user_id: UUID,
+    admin: AdminUser,
+    confirm: bool = Query(default=False, description="Confirm deletion"),
+    db: Session = Depends(get_db),
+):
+    delete_user(db, user_id, admin.id, confirm=confirm)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/users/{user_id}/deactivate", response_model=AccountResponse)
+def deactivate_user_endpoint(
     user_id: UUID, admin: AdminUser, db: Session = Depends(get_db)
 ):
-    delete_user(db, user_id, admin.id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return deactivate_user(db, user_id, admin.id)
 
 
 @router.put("/users/{user_id}/assignments", response_model=AccountResponse)

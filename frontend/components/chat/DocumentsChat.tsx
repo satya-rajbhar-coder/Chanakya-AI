@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Loader2, X, FileText, ChevronDown, ChevronUp, AlertCircle } from "lucide-react"
+import { Loader2, X, FileText, ChevronDown, ChevronUp, AlertCircle, Sparkles, RotateCcw } from "lucide-react"
 
 import { useWorkspace } from "@/components/workspace-provider"
 import {
@@ -23,7 +23,9 @@ import ChatInput from "./ChatInput"
 import MarkdownContent from "./MarkdownContent"
 import ResultTable from "./ResultTable"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { useToast } from "@/components/ui/toast-provider"
 import {
     Select,
     SelectContent,
@@ -43,6 +45,7 @@ interface DocumentSource {
 }
 
 interface MessageWithSources extends MessageResponse {
+    sendError?: string
     intent?: string
     sources?: DocumentSource[]
     databaseResult?: AnalysisResponse | null
@@ -58,6 +61,7 @@ interface MessageWithSources extends MessageResponse {
 
 const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
     const router = useRouter()
+    const { showToast } = useToast()
 
     const {
         documents,
@@ -216,27 +220,37 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
         }
     }, [messages, sending])
 
-    const handleSend = async (content: string) => {
+    const handleSend = async (content: string, retryId?: string) => {
         if (sending) return
 
         setError(null)
         setSending(true)
 
-        const tempId = `temp-${generateId()}`
+        const tempId = retryId ?? `temp-${generateId()}`
         const now = new Date().toISOString()
 
-        setMessages((prev) => [
-            ...prev,
-            {
-                id: tempId,
-                user_id: null,
-                conversation_id: conversationId ?? "",
-                role: "user",
-                content,
-                created_at: now,
-                updated_at: now,
-            } as MessageWithSources,
-        ])
+        if (retryId) {
+            setMessages((prev) =>
+                prev.map((message) =>
+                    message.id === retryId
+                        ? { ...message, sendError: undefined }
+                        : message,
+                ),
+            )
+        } else {
+            setMessages((prev) => [
+                ...prev,
+                {
+                    id: tempId,
+                    user_id: null,
+                    conversation_id: conversationId ?? "",
+                    role: "user",
+                    content,
+                    created_at: now,
+                    updated_at: now,
+                } as MessageWithSources,
+            ])
+        }
 
         let activeId = activeConversationId
 
@@ -310,10 +324,15 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
             const message = getApiErrorMessage(err)
 
             setMessages((prev) =>
-                prev.filter((m) => m.id !== tempId)
+                prev.map((item) =>
+                    item.id === tempId ? { ...item, sendError: message } : item,
+                ),
             )
-
-            setError(message)
+            showToast({
+                title: "Message not sent",
+                description: message,
+                type: "error",
+            })
         } finally {
             setSending(false)
         }
@@ -325,7 +344,16 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
             <TooltipProvider>
                 <div className="min-h-0 flex-1 flex flex-col">
                     <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5 md:px-6">
-                        {!clientsLoading && clients.length > 1 && (
+                        {clientsLoading ? (
+                            <div className="flex items-center gap-3">
+                                <label htmlFor="chat-client" className="text-sm text-muted-foreground">
+                                    Database
+                                </label>
+                                <div className="h-9 w-[240px] flex items-center rounded-md border border-input bg-input/30 px-3">
+                                    <Skeleton className="h-4 w-3/4" />
+                                </div>
+                            </div>
+                        ) : clients.length > 1 && (
                             <div className="flex items-center gap-3">
                                 <label htmlFor="chat-client" className="text-sm text-muted-foreground">
                                     Database
@@ -342,7 +370,7 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                                     <SelectContent>
                                         {clients.map((client) => (
                                             <SelectItem key={client.id} value={client.id}>
-                                                {client.name} ({client.code})
+                                                {client.name} ({client.client_identifier})
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -353,6 +381,27 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
 
                 {/* Chat Messages */}
                 <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">
+                    {error && (
+                        <div
+                            role="alert"
+                            className="mb-4 flex w-full items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-destructive"
+                        >
+                            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                                <p className="text-sm">{error}</p>
+                                <button
+                                    type="button"
+                                    onClick={() => setError(null)}
+                                    className="mt-1 text-xs text-primary underline underline-offset-4 hover:text-primary/80"
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={() => setError(null)} className="h-7 w-7">
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    )}
                     {loadingHistory ? (
                         <div className="flex h-full min-h-[50vh] items-center justify-center gap-3 text-sm text-muted-foreground">
                             <Loader2 className="h-5 w-5 text-primary" />
@@ -360,13 +409,18 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                         </div>
                     ) : isEmpty ? (
                         <div className="flex h-full min-h-[50vh] flex-col items-center justify-center text-center px-4">
-                            <h1 className="mb-2 text-2xl font-semibold tracking-tight">Ask anything</h1>
+                            <div className="flex flex-col items-center gap-3">
+                                <div className="p-3 rounded-full bg-primary/10 text-primary">
+                                    <Sparkles className="size-6" />
+                                </div>
+                                <h1 className="mb-2 text-2xl font-semibold tracking-tight">Ask anything</h1>
 
-                            <p className="mb-8 max-w-md text-sm text-muted-foreground">
-                                {documents.length > 0
-                                    ? "Your documents and databases are searched automatically when relevant."
-                                    : "You can ask about your assigned databases. An administrator can add documents in the sidebar for document Q&A."}
-                            </p>
+                                <p className="mb-8 max-w-md text-sm text-muted-foreground">
+                                    {documents.length > 0
+                                        ? "Your documents and databases are searched automatically when relevant."
+                                        : "You can ask about your assigned databases. An administrator can add documents in the sidebar for document Q&A."}
+                                </p>
+                            </div>
                         </div>
                     ) : (
                         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -374,8 +428,32 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                                 <div key={message.id} className="flex flex-col gap-2">
                                     {message.role === "user" ? (
                                         <div className="flex justify-end">
-                                            <div className="max-w-[75%] whitespace-pre-wrap wrap-break-word rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground">
-                                                {message.content}
+                                            <div className="max-w-[75%]">
+                                                <div className="whitespace-pre-wrap break-words rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground">
+                                                    {message.content}
+                                                </div>
+                                                {(message as MessageWithSources).sendError && (
+                                                    <div
+                                                        role="alert"
+                                                        className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-destructive"
+                                                    >
+                                                        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                                                        <div>
+                                                            <p className="text-sm">
+                                                                {(message as MessageWithSources).sendError}
+                                                            </p>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="mt-2 h-8 border-destructive/30 text-destructive hover:bg-destructive/10"
+                                                                onClick={() => handleSend(message.content, message.id)}
+                                                            >
+                                                                <RotateCcw className="size-3" />
+                                                                Try again
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     ) : (
@@ -462,19 +540,6 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                             )}
 
                             <div ref={bottomRef} />
-                        </div>
-                    )}
-
-                    {error && (
-                        <div
-                            role="alert"
-                            className="mx-auto mb-4 flex w-full max-w-3xl items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-destructive"
-                        >
-                            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-                            <span className="flex-1 text-sm">{error}</span>
-                            <Button variant="ghost" size="icon" onClick={() => setError(null)} className="h-7 w-7">
-                                <X className="h-4 w-4" />
-                            </Button>
                         </div>
                     )}
                 </div>

@@ -142,7 +142,7 @@ const AnalysisChat = () => {
                                 <SelectContent>
                                     {clients.map((c) => (
                                         <SelectItem key={c.id} value={c.id}>
-                                            {c.name} ({c.code})
+                                            {c.name} ({c.client_identifier})
                                                                                     </SelectItem>
                                                                                 ))}
                                                                             </SelectContent>

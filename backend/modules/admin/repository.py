@@ -79,3 +79,23 @@ class AdminRepository:
 
     def refresh(self, instance) -> None:
         self.db.refresh(instance)
+
+    def get_available_databases(self) -> list[dict]:
+        """Get all available databases from the analysis DB URL template with assignment status."""
+        from modules.analysis.registry import get_all_database_names
+        
+        db_names = get_all_database_names()
+        result = []
+        
+        for db_name in db_names:
+            client = self.db.scalar(
+                select(Client).where(Client.database_name == db_name)
+            )
+            result.append({
+                "name": db_name,
+                "is_assigned": client is not None,
+                "assigned_client_id": client.id if client else None,
+                "assigned_client_name": client.name if client else None,
+            })
+        
+        return result

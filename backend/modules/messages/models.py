@@ -13,7 +13,7 @@ from database.base import Base
 
 if TYPE_CHECKING:
     from modules.conversations.models import Conversation
-    from modules.intelligence.models import ChatAnalysisQuery
+    from ai_agent.intelligence.models import ChatAnalysisQuery
     from modules.users.models import User
 
 
