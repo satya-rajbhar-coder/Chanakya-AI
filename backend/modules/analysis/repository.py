@@ -5,84 +5,15 @@ from sqlalchemy.orm import Session
 
 from modules.users.models import User
 
-from .models import AnalysisQuery, Client, UserClient
+from .models import AnalysisQuery
 
 
 class AnalysisRepository:
-    """Data access layer for analysis queries, saved analyses, clients, and
-    user-client assignments. Contains only raw database operations — no
-    business logic, no HTTP concerns."""
+    """Data access layer for analysis queries and saved analyses.
+    Contains only raw database operations — no business logic, no HTTP concerns."""
 
     def __init__(self, db: Session):
         self.db = db
-
-    # ------------------------------------------------------------------
-    # Client / assignment lookups
-    # ------------------------------------------------------------------
-
-    def get_client_database_name(self, client_id: UUID) -> str | None:
-        return self.db.scalar(
-            select(Client.database_name).where(Client.id == client_id)
-        )
-
-    def get_client_identifier(self, client_id: UUID) -> str | None:
-        """Return the client_identifier string (e.g. 'client147') for a client UUID."""
-        return self.db.scalar(
-            select(Client.client_identifier).where(Client.id == client_id)
-        )
-
-    def get_client_database_name_for_user(
-        self, client_id: UUID, user_id: UUID, is_admin: bool
-    ) -> str | None:
-        if is_admin:
-            return self.db.scalar(
-                select(Client.database_name).where(Client.id == client_id)
-            )
-        return self.db.scalar(
-            select(Client.database_name)
-            .join(UserClient, UserClient.client_id == Client.id)
-            .where(UserClient.user_id == user_id, Client.id == client_id)
-        )
-
-    def get_assigned_client_ids(self, user_id: UUID) -> list[UUID]:
-        return list(
-            self.db.scalars(
-                select(UserClient.client_id).where(UserClient.user_id == user_id)
-            ).all()
-        )
-
-    def get_assigned_databases(
-        self, user_id: UUID, client_ids: list[UUID] | None = None
-    ) -> list[tuple[str, UUID]]:
-        """Return [(database_name, client_id), ...] for the user's assigned
-        clients. If client_ids is None, all assigned clients are returned."""
-        if client_ids is None:
-            client_ids = self.get_assigned_client_ids(user_id)
-            if not client_ids:
-                return []
-
-        user = self.db.get(User, user_id)
-        is_admin = user is not None and user.role == "admin"
-
-        results: list[tuple[str, UUID]] = []
-        for cid in client_ids:
-            name = self.get_client_database_name_for_user(cid, user_id, is_admin)
-            if name is None:
-                continue
-            results.append((name, cid))
-        return results
-
-    def get_active_clients_for_user(self, user_id: UUID) -> list[Client]:
-        return list(
-            self.db.scalars(
-                select(Client)
-                .join(UserClient, UserClient.client_id == Client.id)
-                .where(
-                    UserClient.user_id == user_id, Client.is_active == True
-                )  # noqa: E712
-                .order_by(Client.code)
-            ).all()
-        )
 
     # ------------------------------------------------------------------
     # AnalysisQuery (history)

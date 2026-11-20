@@ -33,18 +33,18 @@ def sqlglot_dialect(engine: Engine) -> str:
 
 def get_all_database_names() -> list[str]:
     """Get all database names from the PostgreSQL server using the analysis DB URL template.
-    
+
     This connects to the PostgreSQL server (using the template with a default database)
     and queries for all available databases, excluding system databases.
     """
     template = settings.ANALYSIS_DB_URL_TEMPLATE
     if "{name}" not in template:
         raise KeyError("ANALYSIS_DB_URL_TEMPLATE must contain the {name} placeholder")
-    
+
     # Create a connection URL to the default 'postgres' database to list all databases
     # Replace {name} with 'postgres' to connect to the default database
     default_db_url = template.format(name="postgres")
-    
+
     try:
         engine = create_engine(default_db_url, pool_pre_ping=True)
         with engine.connect() as conn:
@@ -59,14 +59,7 @@ def get_all_database_names() -> list[str]:
             db_names = [row[0] for row in result.fetchall()]
         return db_names
     except Exception as e:
-        # Fallback: if we can't connect to the server, return databases from clients table
-        from sqlalchemy import select
-        from database.session import SessionLocal
-        from modules.analysis.models import Client
-        
-        with SessionLocal() as session:
-            names = session.scalars(
-                select(Client.database_name)
-                .where(Client.database_name.isnot(None), Client.is_active == True)
-            ).all()
-        return [str(n) for n in names if n]
+        # Fallback: return empty list if we can't connect to the server
+        logger = __import__("logging").getLogger(__name__)
+        logger.warning("Could not fetch database names from PostgreSQL: %s", e)
+        return []

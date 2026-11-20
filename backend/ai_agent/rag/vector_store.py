@@ -62,10 +62,14 @@ def get_pgvector_store() -> PGVectorStore:
     if _vector_store is None:
         with _lock:
             if _vector_store is None:
+                if settings.EMBEDDING_PROVIDER == "ollama":
+                    embedding_service = get_ollama_embeddings()
+                else:
+                    embedding_service = get_google_embeddings()
                 _vector_store = PGVectorStore.create_sync(
                     engine=get_pg_engine(),
                     table_name=settings.VECTOR_COLLECTION,
-                    embedding_service=get_google_embeddings(),
+                    embedding_service=embedding_service,
                     metadata_columns=METADATA_COLUMNS,
                 )
     return _vector_store

@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from modules.analysis.models import Client
 from modules.users.models import User
 from ai_agent.rag.loader import SUPPORTED_EXTENSIONS, EmptyDocumentError, UnsupportedFileError
 from ai_agent.rag.service import delete_document_chunks, ingest_document
@@ -30,7 +29,7 @@ class DocumentService:
         file: UploadFile,
         user_ids: list[UUID],
     ) -> Document:
-        user_ids = self._validate_scope(None, user_ids)
+        user_ids = self._validate_scope(user_ids)
         filename = Path(file.filename or "").name
         extension = Path(filename).suffix.lower()
 
@@ -57,7 +56,6 @@ class DocumentService:
 
         document = Document(
             user_id=user.id,
-            client_id=None,
             filename=filename[:255],
             content_type=(file.content_type or "application/octet-stream")[:100],
             size_bytes=len(data),
@@ -101,20 +99,10 @@ class DocumentService:
         return self.repo.get_all(user)
 
     def _validate_scope(
-        self, client_id: UUID | None, user_ids: list[UUID]
+        self, user_ids: list[UUID]
     ) -> list[UUID]:
-        """A document must reach at least one place: a client or users."""
+        """Validate that all user_ids exist (empty list is allowed)."""
         user_ids = list(dict.fromkeys(user_ids))
-        if (
-            client_id is not None
-            and self.db.get(Client, client_id) is None
-        ):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown client")
-        if not user_ids and client_id is None:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Assign the document to a client or at least one user",
-            )
         if user_ids:
             found = set(
                 self.db.scalars(select(User.id).where(User.id.in_(user_ids))).all()
@@ -135,8 +123,7 @@ class DocumentService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Document does not exist"
             )
-        user_ids = self._validate_scope(None, user_ids)
-        document.client_id = None
+        user_ids = self._validate_scope(user_ids)
         self.repo.set_assignments(document, user_ids)
         try:
             self.db.commit()

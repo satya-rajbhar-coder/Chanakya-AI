@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -60,7 +60,7 @@ _POLITICIAN_TERM = re.compile(
 _CANNED_REPLIES = (NOT_FOUND_REPLY, NO_DOCUMENTS_REPLY)
 _GENERAL_UNAVAILABLE = "I'm unable to answer that right now. Please try again later."
 
-# Personal profile detection (utility only — not used for short-circuiting).
+# Personal profile detection (utility only â€” not used for short-circuiting).
 # The LLM decides how to respond using the user_profile context passed to it.
 _PERSONAL_PROFILE_TERM = re.compile(
     r"\b(?:my ward|what is my ward|which ward|my name|what is my name|who am i|"
@@ -81,7 +81,7 @@ _GREETING_MIN_WORDS = 4
 _GREETING_MAX_CHARS = 60
 
 # Identity / self-description fast path: questions about who the assistant is.
-# These need no data lookup — answered with a static response, zero LLM calls.
+# These need no data lookup â€” answered with a static response, zero LLM calls.
 _IDENTITY_TERM = re.compile(
     r"\b(?:who\s+are\s+you|what\s+are\s+you|what\s+is\s+your\s+name|"
     r"tell\s+me\s+about\s+yourself|your\s+name|are\s+you\s+(?:an?\s+)?(?:bot|ai|assistant)|"
@@ -134,7 +134,6 @@ class IntelligenceService:
     def ask(
         self,
         question: str,
-        client_id: UUID | None = None,
         conversation_id: UUID | None = None,
     ) -> IntelligenceResponse:
         started = datetime.now(UTC)
@@ -226,7 +225,7 @@ class IntelligenceService:
         suggested_question: str | None = None
 
         if intent == "database":
-            database_result = self._run_database(question, client_id)
+            database_result = self._run_database(question)
             # If the query failed entirely (sql is empty), present the
             # restructured question suggestion instead of an error.
             if database_result and not database_result.sql:
@@ -283,7 +282,7 @@ class IntelligenceService:
             document_result = self._run_document(
                 question, conversation.id, user_profile=user_profile
             )
-            database_result = self._run_database(question, client_id)
+            database_result = self._run_database(question)
 
             parts: list[str] = []
             if document_result and document_result.answer not in _CANNED_REPLIES:
@@ -351,7 +350,7 @@ class IntelligenceService:
                 else:
                     # Optional database safety net for ward-scoped questions.
                     try:
-                        database_result = self._run_database(question, client_id)
+                        database_result = self._run_database(question)
                         if database_result and database_result.sql:
                             answer = self._synthesize_database_answer(
                                 question, database_result, user_profile=user_profile
@@ -573,7 +572,7 @@ class IntelligenceService:
         return bool(_IDENTITY_TERM.search(stripped))
 
     def _identity_reply(self) -> str:
-        """Static self-description — no data lookup, zero LLM calls."""
+        """Static self-description â€” no data lookup, zero LLM calls."""
         name = getattr(self.user, "name", None)
         ward_no = getattr(self.user, "ward_no", None)
         party_name = getattr(self.user, "party_name", None)
@@ -615,7 +614,7 @@ class IntelligenceService:
         # Find all ward references in the question
         matches = _WARD_REFERENCE_TERM.findall(question)
         if not matches:
-            # No specific ward mentioned — allow (will be filtered by scope later)
+            # No specific ward mentioned â€” allow (will be filtered by scope later)
             return True
 
         # If user has no ward assigned, they cannot query specific wards
@@ -636,16 +635,13 @@ class IntelligenceService:
     # ------------------------------------------------------------------ #
     # Database path
     # ------------------------------------------------------------------ #
-    def _run_database(self, question: str, client_id: UUID | None) -> DatabaseResult:
+    def _run_database(self, question: str) -> DatabaseResult:
         result = self.analysis_service.ask(
-            AskRequest(question=question, client_id=client_id),
+            AskRequest(question=question),
             self.user.id,
             user=self.user,
         )
 
-        # If the database query failed, return a DatabaseResult with no rows
-        # and the restructured question stored in title so the caller can
-        # present it to the user instead of an error.
         if not result.get("success", True):
             return DatabaseResult(
                 title=result.get("restructured_question", ""),
@@ -804,7 +800,7 @@ class IntelligenceService:
         return DocumentResult(answer=answer, sources=sources)
 
     # ------------------------------------------------------------------ #
-    # General path — questions not answerable from database or documents
+    # General path â€” questions not answerable from database or documents
     # ------------------------------------------------------------------ #
     def _run_general(
         self,

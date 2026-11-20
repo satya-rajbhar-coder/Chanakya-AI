@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useRef, useState } from "react"
 import {
@@ -6,15 +6,8 @@ import {
     AlertCircle, Sparkles,
 } from "lucide-react"
 
-import {
-    AnalysisClient,
-    AnalysisResponse,
-    askAnalysis,
-    errorMessage,
-    listClients,
-} from "@/services/analysis"
+import { askAnalysis, errorMessage, type AnalysisResponse } from "@/services/analysis"
 import { generateId } from "@/lib/utils"
-
 import ChatInput from "./ChatInput"
 import ResultTable from "./ResultTable"
 import { Button } from "@/components/ui/button"
@@ -53,33 +46,15 @@ const ThinkingIndicator = () => (
 
 const AnalysisChat = () => {
     const [turns, setTurns] = useState<Turn[]>([])
-    const [clients, setClients] = useState<AnalysisClient[]>([])
-    const [selectedClient, setSelectedClient] = useState<string | null>(null)
-    const [clientsLoading, setClientsLoading] = useState(true)
+    
+    
+    
     const bottomRef = useRef<HTMLDivElement>(null)
+    const abortControllerRef = useRef<AbortController | null>(null)
 
     const sending = turns.some((turn) => turn.status === "loading")
 
-    useEffect(() => {
-        let active = true
-        listClients()
-            .then((data) => {
-                if (!active) return
-                setClients(data)
-                if (data.length === 1) {
-                    setSelectedClient(data[0].id)
-                }
-            })
-            .catch(() => {
-                if (active) setClients([])
-            })
-            .finally(() => {
-                if (active) setClientsLoading(false)
-            })
-        return () => {
-            active = false
-        }
-    }, [])
+    
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -91,14 +66,17 @@ const AnalysisChat = () => {
     const handleSend = async (question: string) => {
             if (sending) return
 
+            const sendAbortController = new AbortController()
+
             const id = generateId()
 
             setTurns((prev) => [...prev, { id, question, status: "loading" }])
 
             try {
-                const data = await askAnalysis(question, selectedClient ?? undefined)
+                const data = await askAnalysis(question, sendAbortController.signal)
                 patch(id, { status: "done", data })
             } catch (err) {
+                if (err instanceof DOMException && err.name === "AbortError") return
                 patch(id, { status: "error", error: errorMessage(err) })
             }
         }
@@ -129,27 +107,8 @@ const AnalysisChat = () => {
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
-                        {!clientsLoading && clients.length > 1 && (
-                            <Select
-                                                            onValueChange={(value) => {
-                                                                setSelectedClient(value ?? null)
-                                                            }}
-                                                            defaultValue={selectedClient ?? undefined}
-                                                        >
-                                <SelectTrigger className="w-[200px] h-9">
-                                    <SelectValue placeholder="Select client" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {clients.map((c) => (
-                                        <SelectItem key={c.id} value={c.id}>
-                                            {c.name} ({c.client_identifier})
-                                                                                    </SelectItem>
-                                                                                ))}
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    )}
-                                                                </div>
-                                                            </div>
+                                        </div>
+                                    </div>
 
                                                             {/* Messages */}
                 <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">
@@ -228,3 +187,5 @@ const AnalysisChat = () => {
 }
 
 export default AnalysisChat
+
+

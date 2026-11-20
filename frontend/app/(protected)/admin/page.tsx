@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 
-import AdminPanel from "@/components/admin/AdminPanel"
+import { AdminPanel } from "@/components/admin/AdminPanel"
 import { getSession } from "@/services/session.server"
 
 export default async function AdminPage() {
@@ -14,5 +14,5 @@ export default async function AdminPage() {
         redirect("/")
     }
 
-    return <AdminPanel currentUserId={session.user.id} />
+    return <AdminPanel />
 }

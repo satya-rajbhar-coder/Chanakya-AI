@@ -1,13 +1,14 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from core.cookies import REFRESH_COOKIE, clear_auth_cookies, set_auth_cookies
+from core.rate_limit import rate_limit_dependency
 from database.session import get_db
 
-from .schemas import AuthMessage, LoginRequest
+from .schemas import AuthMessage, LoginRequest, ForgotPasswordRequest
 from .services import AuthService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -56,3 +57,18 @@ def logout(
     AuthService(db).logout(refresh_token)
     clear_auth_cookies(response)
     return {"message": "Logged out successfully"}
+
+
+@router.post("/forgot-password", response_model=AuthMessage)
+def forgot_password(
+    request: Request,
+    data: ForgotPasswordRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    _rate_limit: Annotated[None, Depends(rate_limit_dependency)] = None,
+):
+    """Request a password reset. Rate-limited to prevent abuse."""
+    # Always return success to prevent email enumeration
+    # In production, send a reset email with a time-limited token
+    AuthService(db).request_password_reset(str(data.email))
+    return {"message": "If an account exists for this email, a reset link has been sent."}

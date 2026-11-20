@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict
 class DocumentResponse(BaseModel):
     id: UUID
     user_id: UUID
-    client_id: UUID | None
     assigned_user_ids: list[UUID] = []
     filename: str
     content_type: str

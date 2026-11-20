@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     XAI_BASE_URL: str = "https://api.x.ai/v1"
 
     GOOGLE_EMBEDDING_MODEL: str
+    EMBEDDING_PROVIDER: str = "google"
     VECTOR_STORE_URL: str
     VECTOR_COLLECTION: str = "vector_documents"
     VECTOR_DIMENSION: int = 3072

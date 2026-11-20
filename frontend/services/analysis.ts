@@ -26,7 +26,6 @@ export interface HistoryItem {
     question: string
     title: string | null
     database: string
-    client_id: string | null
     row_count: number | null
     created_at: string
 }
@@ -35,48 +34,44 @@ export interface AdminHistoryItem extends HistoryItem {
     sql: string
 }
 
-const send = (path: string, method: string, body?: unknown): Promise<Response> =>
-    rawSend(`/analysis${path}`, method, body)
+const send = (
+    path: string,
+    method: string,
+    body?: unknown,
+    signal?: AbortSignal,
+): Promise<Response> =>
+    rawSend(`/analysis${path}`, method, body, signal)
 
-export interface AnalysisClient {
-    id: string
-    name: string
-    client_identifier: string
-    database_name: string
-    is_active: boolean
-}
-
-/** Clients the current user is assigned to (admins get all). */
-export const listClients = async (): Promise<AnalysisClient[]> =>
-    (await send("/clients", "GET")).json()
-
+/** Ask an analysis question. */
 export const askAnalysis = async (
     question: string,
-    clientId?: string | null,
+    signal?: AbortSignal,
 ): Promise<AnalysisResponse> =>
     (await send("/query", "POST", {
         question,
-        client_id: clientId ?? null,
-    })).json()
+    }, signal)).json()
 
-export const listHistory = async (clientId?: string): Promise<HistoryItem[]> =>
-    (await send(`/history${clientId ? `?client_id=${encodeURIComponent(clientId)}` : ""}`, "GET")).json()
+export const listHistory = async (): Promise<HistoryItem[]> =>
+    (await send("/history", "GET")).json()
 
 export const deleteHistory = async (id: string): Promise<void> => {
     await send(`/history/${id}`, "DELETE")
 }
 
-export const adminListHistory = async (clientId?: string): Promise<AdminHistoryItem[]> =>
-    (await send(`/admin/history${clientId ? `?client_id=${encodeURIComponent(clientId)}` : ""}`, "GET")).json()
+export const adminListHistory = async (): Promise<AdminHistoryItem[]> =>
+    (await send("/admin/history", "GET")).json()
 
 export const runHistory = async (
     id: string,
     page = 0,
     pageSize = 500,
+    signal?: AbortSignal,
 ): Promise<AnalysisResponse> =>
     (await send(
         `/history/${id}/run?page=${page}&page_size=${pageSize}`,
         "POST",
+        undefined,
+        signal,
     )).json()
 
 // Safety cap so a backend that keeps reporting has_more cannot loop forever.

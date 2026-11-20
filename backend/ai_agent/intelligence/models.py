@@ -16,9 +16,7 @@ class ChatAnalysisQuery(Base):
     __tablename__ = "chat_analysis_queries"
 
     assistant_message_id: Mapped[UUID] = mapped_column(
-        Uuid,
-        ForeignKey("messages.id", ondelete="CASCADE"),
-        primary_key=True,
+        Uuid, ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
     )
     analysis_query_id: Mapped[UUID] = mapped_column(
         Uuid,

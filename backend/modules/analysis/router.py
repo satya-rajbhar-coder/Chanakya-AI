@@ -9,7 +9,6 @@ from database.session import get_db
 from modules.analysis.schemas import (
     AnalysisResponse,
     AskRequest,
-    ClientResponse,
     HistoryResponse,
     TokenRequest,
     UserHistoryResponse,
@@ -23,13 +22,6 @@ router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
 def _service(db: Session = Depends(get_db)) -> AnalysisService:
     return AnalysisService(db)
-
-
-@router.get("/clients", response_model=list[ClientResponse])
-def assigned_clients(user: CurrentUser, db: Session = Depends(get_db)):
-    repo = AnalysisRepository(db)
-    clients = repo.get_active_clients_for_user(user.id)
-    return [ClientResponse.model_validate(c) for c in clients]
 
 
 @router.post("/query")
@@ -63,22 +55,20 @@ def export(
 def history(
     user: CurrentUser,
     svc: AnalysisService = Depends(_service),
-    client_id: UUID | None = None,
 ):
     """History for regular users - excludes SQL."""
-    return svc.list_history(user.id, client_id)
+    return svc.list_history(user.id)
 
 
 @router.get("/admin/history", response_model=list[HistoryResponse])
 def admin_history(
     user: CurrentUser,
     svc: AnalysisService = Depends(_service),
-    client_id: UUID | None = None,
 ):
     """History for admin users - includes SQL."""
     if user.role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    return svc.list_history(user.id, client_id)
+    return svc.list_history(user.id)
 
 
 @router.delete("/history/{query_id}", status_code=status.HTTP_204_NO_CONTENT)

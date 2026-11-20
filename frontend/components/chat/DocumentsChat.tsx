@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { Loader2, X, FileText, ChevronDown, ChevronUp, AlertCircle, Sparkles, RotateCcw } from "lucide-react"
 
 import { useWorkspace } from "@/components/workspace-provider"
@@ -9,12 +9,7 @@ import {
     MessageResponse,
 } from "@/services/messages"
 import { askIntelligence, IntelligenceResponse } from "@/services/intelligence"
-import {
-    listClients,
-    runHistory,
-    type AnalysisClient,
-    type AnalysisResponse,
-} from "@/services/analysis"
+import { runHistory } from "@/services/analysis"
 import { getApiErrorMessage } from "@/services/error"
 import { generateId } from "@/lib/utils"
 import { useRouter } from "next/navigation"
@@ -48,7 +43,7 @@ interface MessageWithSources extends MessageResponse {
     sendError?: string
     intent?: string
     sources?: DocumentSource[]
-    databaseResult?: AnalysisResponse | null
+    databaseResult?: any | null
     databaseLoading?: boolean
     databaseError?: string | null
     databaseRefreshedAt?: string
@@ -71,18 +66,16 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
     } = useWorkspace()
 
     const [messages, setMessages] = useState<MessageWithSources[]>([])
-        const [loadingHistory, setLoadingHistory] = useState(Boolean(conversationId))
-        const [sending, setSending] = useState(false)
-        const [error, setError] = useState<string | null>(flashError)
-        const [showSources, setShowSources] = useState<string | null>(null)
-        const [clients, setClients] = useState<AnalysisClient[]>([])
-        const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
-        const [clientsLoading, setClientsLoading] = useState(true)
-        const [activeConversationId, setActiveConversationId] = useState(conversationId)
+    const [loadingHistory, setLoadingHistory] = useState(Boolean(conversationId))
+    const [sending, setSending] = useState(false)
+    const [error, setError] = useState<string | null>(flashError)
+    const [showSources, setShowSources] = useState<string | null>(null)
+    const [activeConversationId, setActiveConversationId] = useState(conversationId)
 
     const bottomRef = useRef<HTMLDivElement>(null)
     const skipScrollRef = useRef(false)
     const initialScrollDoneRef = useRef(false)
+    const abortControllerRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
         if (flashError) {
@@ -91,37 +84,10 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
     }, [flashError, setFlashError])
 
     useEffect(() => {
-        let cancelled = false
-
-        const loadClients = async () => {
-            try {
-                const availableClients = await listClients()
-                if (cancelled) return
-
-                setClients(availableClients)
-                if (availableClients.length === 1) {
-                    setSelectedClientId(availableClients[0].id)
-                }
-            } catch (err) {
-                if (!cancelled) {
-                    setError(getApiErrorMessage(err))
-                }
-            } finally {
-                if (!cancelled) {
-                    setClientsLoading(false)
-                }
-            }
-        }
-
-        void loadClients()
-
-        return () => {
-                    cancelled = true
-                }
-            }, [])
-
-            useEffect(() => {
         if (!conversationId) return
+
+        const abortController = new AbortController()
+        abortControllerRef.current = abortController
 
         let cancelled = false
 
@@ -129,7 +95,10 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
             setLoadingHistory(true)
 
             try {
-                const loadedMessages = await getEntireConversationMessages(conversationId)
+                const loadedMessages = await getEntireConversationMessages(
+                    conversationId,
+                    abortController.signal,
+                )
 
                 if (cancelled) return
 
@@ -144,9 +113,6 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                 setMessages(restoredMessages)
                 setLoadingHistory(false)
 
-                // Load only the first page of each saved query result to avoid
-                // hundreds of API calls for large result sets. Full results can
-                // be loaded on demand via "Load more" or CSV export.
                 const targets = restoredMessages.filter(
                     (message): message is MessageWithSources & { analysis_query_id: string } =>
                         message.role === "assistant" &&
@@ -157,7 +123,12 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                 await Promise.all(
                     targets.map(async (message) => {
                         try {
-                            const result = await runHistory(message.analysis_query_id)
+                            const result = await runHistory(
+                                message.analysis_query_id,
+                                0,
+                                500,
+                                abortController.signal,
+                            )
                             if (cancelled) return
                             setMessages((current) =>
                                 current.map((item) =>
@@ -173,6 +144,7 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                             )
                         } catch (err) {
                             if (cancelled) return
+                            if (err instanceof DOMException && err.name === "AbortError") return
                             setMessages((current) =>
                                 current.map((item) =>
                                     item.id === message.id
@@ -188,9 +160,9 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                     }),
                 )
             } catch (err) {
-                if (!cancelled) {
-                    setError(getApiErrorMessage(err))
-                }
+                if (cancelled) return
+                if (err instanceof DOMException && err.name === "AbortError") return
+                setError(getApiErrorMessage(err))
             } finally {
                 if (!cancelled) {
                     setLoadingHistory(false)
@@ -202,6 +174,7 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
 
         return () => {
             cancelled = true
+            abortController.abort()
         }
     }, [conversationId])
 
@@ -222,6 +195,8 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
 
     const handleSend = async (content: string, retryId?: string) => {
         if (sending) return
+
+        const sendAbortController = new AbortController()
 
         setError(null)
         setSending(true)
@@ -255,13 +230,15 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
         let activeId = activeConversationId
 
         try {
-            const data: IntelligenceResponse = await askIntelligence({
-                question: content,
-                client_id: selectedClientId,
-                conversation_id: activeId ?? undefined,
-            })
+            const data: IntelligenceResponse = await askIntelligence(
+                {
+                    question: content,
+                    conversation_id: activeId ?? undefined,
+                },
+                sendAbortController.signal,
+            )
 
-            const databaseResult: AnalysisResponse | null = data.database
+            const databaseResult: any | null = data.database
                 ? {
                     title: data.database.title ?? content.slice(0, 80),
                     database: data.database.database ?? "",
@@ -318,9 +295,10 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
             }
 
             if (data.database) {
-                            // Query history removed from user chat
+                // Query history removed from user chat
             }
         } catch (err) {
+            if (err instanceof DOMException && err.name === "AbortError") return
             const message = getApiErrorMessage(err)
 
             setMessages((prev) =>
@@ -341,43 +319,10 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
     const isEmpty = !loadingHistory && messages.length === 0
 
     return (
-            <TooltipProvider>
-                <div className="min-h-0 flex-1 flex flex-col">
-                    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5 md:px-6">
-                        {clientsLoading ? (
-                            <div className="flex items-center gap-3">
-                                <label htmlFor="chat-client" className="text-sm text-muted-foreground">
-                                    Database
-                                </label>
-                                <div className="h-9 w-[240px] flex items-center rounded-md border border-input bg-input/30 px-3">
-                                    <Skeleton className="h-4 w-3/4" />
-                                </div>
-                            </div>
-                        ) : clients.length > 1 && (
-                            <div className="flex items-center gap-3">
-                                <label htmlFor="chat-client" className="text-sm text-muted-foreground">
-                                    Database
-                                </label>
-                                <Select
-                                    value={selectedClientId ?? ""}
-                                    onValueChange={(clientId) => {
-                                        setSelectedClientId(clientId)
-                                    }}
-                                >
-                                    <SelectTrigger id="chat-client" className="w-[240px]">
-                                        <SelectValue placeholder="Select a client" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {clients.map((client) => (
-                                            <SelectItem key={client.id} value={client.id}>
-                                                {client.name} ({client.client_identifier})
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        )}
-                    </div>
+        <TooltipProvider>
+            <div className="min-h-0 flex-1 flex flex-col">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5 md:px-6">
+                </div>
 
                 {/* Chat Messages */}
                 <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6">
@@ -429,7 +374,7 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                                     {message.role === "user" ? (
                                         <div className="flex justify-end">
                                             <div className="max-w-[75%]">
-                                                <div className="whitespace-pre-wrap break-words rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground">
+                                                <div className="whitespace-pre-wrap wrap-break-word rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground">
                                                     {message.content}
                                                 </div>
                                                 {(message as MessageWithSources).sendError && (
@@ -471,7 +416,7 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                                             {(message as MessageWithSources).databaseLoading && (
                                                 <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 p-3 text-sm text-muted-foreground">
                                                     <Loader2 className="size-4 animate-spin" />
-                                                    Refreshing saved database results…
+                                                    Refreshing saved database resultsâ€¦
                                                 </div>
                                             )}
                                             {(message as MessageWithSources).databaseError && (
@@ -483,51 +428,51 @@ const DocumentsChat = ({ conversationId }: DocumentsChatProps) => {
                                     )}
                                     {((message as MessageWithSources).sources ??
                                         []).length > 0 && (
-                                            <div className="mt-1">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="h-7 gap-1 text-xs text-muted-foreground"
-                                                    onClick={() => setShowSources(
-                                                        showSources === message.id ? null : message.id
-                                                    )}
-                                                >
-                                                    <FileText className="h-3 w-3" />
-                                                    Sources ({(message as MessageWithSources).sources!.length})
-                                                    {showSources === message.id ? (
-                                                        <ChevronUp className="h-3 w-3" />
-                                                    ) : (
-                                                        <ChevronDown className="h-3 w-3" />
-                                                    )}
-                                                </Button>
-
-                                                {showSources === message.id && (
-                                                    <div className="mt-2 rounded-lg border bg-muted/30 p-3">
-                                                        <div className="mb-2">
-                                                            <span className="text-xs font-medium text-muted-foreground">Referenced documents</span>
-                                                        </div>
-                                                        <div className="space-y-1 max-h-48 overflow-auto">
-                                                            {(message as MessageWithSources).sources!.map((source, i) => (
-                                                                <div
-                                                                    key={i}
-                                                                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
-                                                                >
-                                                                    <FileText className="size-4 shrink-0 text-muted-foreground" />
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <p className="truncate font-medium">{source.filename || "Document"}</p>
-                                                                        {source.page != null && (
-                                                                            <p className="truncate text-muted-foreground">
-                                                                                Page {source.page}
-                                                                            </p>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
+                                        <div className="mt-1">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 gap-1 text-xs text-muted-foreground"
+                                                onClick={() => setShowSources(
+                                                    showSources === message.id ? null : message.id
                                                 )}
-                                            </div>
-                                        )}
+                                            >
+                                                <FileText className="h-3 w-3" />
+                                                Sources {(message as MessageWithSources).sources!.length}
+                                                {showSources === message.id ? (
+                                                    <ChevronUp className="h-3 w-3" />
+                                                ) : (
+                                                    <ChevronDown className="h-3 w-3" />
+                                                )}
+                                            </Button>
+
+                                            {showSources === message.id && (
+                                                <div className="mt-2 rounded-lg border bg-muted/30 p-3">
+                                                    <div className="mb-2">
+                                                        <span className="text-xs font-medium text-muted-foreground">Referenced documents</span>
+                                                    </div>
+                                                    <div className="space-y-1 max-h-48 overflow-auto">
+                                                        {(message as MessageWithSources).sources!.map((source, i) => (
+                                                            <div
+                                                                key={i}
+                                                                className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+                                                            >
+                                                                <FileText className="size-4 shrink-0 text-muted-foreground" />
+                                                                <div className="min-w-0 flex-1">
+                                                                    <p className="truncate font-medium">{source.filename || "Document"}</p>
+                                                                    {source.page != null && (
+                                                                        <p className="truncate text-muted-foreground">
+                                                                            Page {source.page}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             ))}
 

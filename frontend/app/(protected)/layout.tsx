@@ -1,11 +1,8 @@
-import { redirect } from "next/navigation";
-
 import { AppSidebar } from "@/components/app-sidebar";
 import { DialogProvider } from "@/components/ui/dialog-provider";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-
 import { getSession } from "@/services/session.server";
 
 interface ProtectedLayoutProps {
@@ -17,10 +14,6 @@ export default async function ProtectedLayout({
 }: ProtectedLayoutProps) {
     const session = await getSession();
 
-    if (!session.authenticated) {
-        redirect("/login?reason=expired");
-    }
-
     return (
         <DialogProvider>
             <WorkspaceProvider>
@@ -28,7 +21,7 @@ export default async function ProtectedLayout({
                     <ToastProvider>
                         <AppSidebar user={session.user} />
 
-                        <SidebarInset className="h-svh overflow-hidden">
+                        <SidebarInset className="h-svh overflow-y-auto">
                             {children}
                         </SidebarInset>
                     </ToastProvider>

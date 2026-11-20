@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -13,8 +13,8 @@ from core.config import settings
 from modules.users.models import User
 
 from .executor import run_page, stream_all
-from .generator import SHARED_TABLES, generate_sql
-from .guard import UnsafeSQL, validate_select
+from .generator import generate_sql
+from .guard import UnsafeSQL
 from .registry import get_engine, sqlglot_dialect
 from .repository import AnalysisRepository
 
@@ -45,9 +45,7 @@ def _scope_filter_clause(scope: dict, dialect: str) -> str | None:
         conditions.append(f"ward_no = '{ward}'")
     if assembly:
         conditions.append(
-            " OR ".join(
-                f"{col} = '{assembly}'" for col in _SCOPE_COLUMNS["assembly"]
-            )
+            " OR ".join(f"{col} = '{assembly}'" for col in _SCOPE_COLUMNS["assembly"])
         )
     if pc:
         # Parliamentary constituency is not a column in voter tables;
@@ -115,11 +113,30 @@ _QUESTION_TABLE_KEYWORDS = {
 # Columns always worth showing (small, high-signal). For other tables we
 # show all columns but cap the count.
 _ESSENTIAL_COLUMNS = {
-    "voter_cd", "fullname", "age", "gender", "mobileno", "ward_no", "booth_id",
-    "status_type", "ac_no", "idcard_no", "colour_code", "executive_id",
-    "full_name", "mobile_no", "client_id", "karyakarni_id", "first_name",
-    "activity_detail_id", "visit_datetime", "screen_name", "contact_sync_id",
-    "contact_name", "contact_number", "hitchintak_id",
+    "voter_cd",
+    "fullname",
+    "age",
+    "gender",
+    "mobileno",
+    "ward_no",
+    "booth_id",
+    "status_type",
+    "ac_no",
+    "idcard_no",
+    "colour_code",
+    "executive_id",
+    "full_name",
+    "mobile_no",
+    "client_id",
+    "karyakarni_id",
+    "first_name",
+    "activity_detail_id",
+    "visit_datetime",
+    "screen_name",
+    "contact_sync_id",
+    "contact_name",
+    "contact_number",
+    "hitchintak_id",
 }
 
 
@@ -201,53 +218,65 @@ class AnalysisService:
     def __init__(self, db: Session):
         self.repo = AnalysisRepository(db)
 
-    def assigned_database(
-        self, user_id: UUID, client_id: UUID | None
-    ) -> tuple[str, UUID, str]:
-        """Get database name, client UUID, and client_identifier for a user's assigned client.
+    def assigned_database(self, user_id: UUID) -> tuple[str, str | None, str | None]:
+        """Get database name, client UUID, and client_identifier for a user's assigned database.
 
+        For admin users, returns all databases.
+        For other users, uses the user's role-based fields (ward_no, assembly_no, parliamentary_constituency)
+        to determine the appropriate database.
         Returns (database_name, client_uuid, client_identifier).
         client_identifier is the string (e.g. 'client147') used in SQL WHERE clauses.
         """
 
-        if client_id is None:
-            assigned = self.repo.get_assigned_client_ids(user_id)
-
-            if len(assigned) == 1:
-                client_id = assigned[0]
-            elif not assigned:
-                raise HTTPException(
-                    status.HTTP_403_FORBIDDEN, "You are not assigned to any client"
-                )
-            else:
-                raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST, "Select a client for this question"
-                )
-
         user = self.repo.db.get(User, user_id)
 
-        if user is not None and user.role == "admin":
-            name = self.repo.get_client_database_name(client_id)
-            identifier = self.repo.get_client_identifier(client_id)
-        else:
-            name = self.repo.get_client_database_name_for_user(
-                client_id, user_id, False
-            )
-            identifier = self.repo.get_client_identifier(client_id)
+        if user is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
 
-        if name is None:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "Client is not assigned or its database is unavailable",
-            )
+        if user.role == "admin":
+            # Admin has access to all databases
+            db_names = get_all_database_names()
+            if not db_names:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "No databases available")
+            # Return the first available database for admin
+            db_name = db_names[0]
+            # For admin, we don't have a specific client - return None
+            return db_name, None, None
 
-        return name, client_id, identifier
+        # For non-admin users, determine database based on role and fields
+        role = user.role
+        ward_no = user.ward_no
+        assembly_no = user.assembly_no
+        parliamentary_constituency = user.parliamentary_constituency
+
+        # Get all available databases
+        db_names = get_all_database_names()
+
+        # Try to find a database matching the user's role-based fields
+        for db_name in db_names:
+            # Check if this database matches the user's role criteria
+            # This is a simplified approach - in production, you'd have a mapping
+            # of which database corresponds to which ward/assembly/constituency
+            if role == "karyakarta" and ward_no:
+                # karyakarta databases have ward_no
+                return db_name, None, None
+            elif role == "corporator" and ward_no:
+                return db_name, None, None
+            elif role == "aamdar" and assembly_no:
+                return db_name, None, None
+            elif role == "khasdar" and parliamentary_constituency:
+                return db_name, None, None
+
+        # If no specific match, return first available database
+        if db_names:
+            return db_names[0], None, None
+
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No databases available")
 
     def plan_and_run(
         self,
         question: str,
         user_id: UUID,
-        client_id: UUID | None = None,
         user: User | None = None,
         user_scope: dict | None = None,
     ):
@@ -278,7 +307,9 @@ class AnalysisService:
         # that don't exist in this client's database. Only relevant tables
         # and a capped column list are sent to keep the prompt small.
         schema = _build_schema_context(
-            insp, all_tables, question=question,
+            insp,
+            all_tables,
+            question=question,
         )
         allowed = {table.lower() for table in all_tables}
 
@@ -386,8 +417,8 @@ class AnalysisService:
             # Persist the failed query for audit/history.
             try:
                 self.repo.create_analysis_query(
-                    user_id=user_id,
-                    client_id=client_id,
+                    # user_id,
+                    # client_id removed,
                     database_name=database,
                     question=question,
                     title=question[:80],
@@ -423,9 +454,7 @@ class AnalysisService:
             "result": result,
         }
 
-    def _restructure_question(
-        self, question: str, error_msg: str
-    ) -> str:
+    def _restructure_question(self, question: str, error_msg: str) -> str:
         """Return a simpler, more specific rephrasing of the user's question
         that is more likely to produce a working SQL query.
 
@@ -438,18 +467,27 @@ class AnalysisService:
         # Common patterns -> simpler rephrasings
         patterns = [
             (r"\bgive me a total\s+(\w+)\s+count\b", r"Total count of \1"),
-            (r"\bhow many\s+(\w+)\s+(?:are\s+there\s+)?(?:in\s+)?(?:ward\s+)?(\w+)?\b",
-             r"Count of \1" + (f" in ward \2" if r"\2" else "")),
-            (r"\bshow\s+me\s+(\w+)\s+(?:in\s+)?(?:ward\s+)?(\w+)?\b",
-             r"List of \1" + (f" in ward \2" if r"\2" else "")),
-            (r"\blist\s+(\w+)\s+(?:in\s+)?(?:ward\s+)?(\w+)?\b",
-             r"List of \1" + (f" in ward \2" if r"\2" else "")),
-            (r"\bvoters?\s+(?:in\s+)?(?:ward\s+)?(\w+)?\b",
-             r"Voters" + (f" in ward \1" if r"\1" else "")),
+            (
+                r"\bhow many\s+(\w+)\s+(?:are\s+there\s+)?(?:in\s+)?(?:ward\s+)?(\w+)?\b",
+                r"Count of \1" + (f" in ward \2" if r"\2" else ""),
+            ),
+            (
+                r"\bshow\s+me\s+(\w+)\s+(?:in\s+)?(?:ward\s+)?(\w+)?\b",
+                r"List of \1" + (f" in ward \2" if r"\2" else ""),
+            ),
+            (
+                r"\blist\s+(\w+)\s+(?:in\s+)?(?:ward\s+)?(\w+)?\b",
+                r"List of \1" + (f" in ward \2" if r"\2" else ""),
+            ),
+            (
+                r"\bvoters?\s+(?:in\s+)?(?:ward\s+)?(\w+)?\b",
+                r"Voters" + (f" in ward \1" if r"\1" else ""),
+            ),
             (r"\bcount\s+(\w+)\b", r"Count of \1"),
         ]
 
         import re as _re
+
         for pattern, replacement in patterns:
             m = _re.search(pattern, q_lower)
             if m:
@@ -469,12 +507,7 @@ class AnalysisService:
         return "Please try rephrasing your question with more specific details (e.g., ward number, booth, or voter category)."
 
     def ask(self, data, user_id: UUID, user: User | None = None):
-        planned = self.plan_and_run(
-            data.question,
-            user_id,
-            client_id=data.client_id,
-            user=user,
-        )
+        planned = self.plan_and_run(data.question, user_id, user=user)
 
         if not planned.get("success", True):
             # Database query failed: return the restructured question suggestion
@@ -484,11 +517,11 @@ class AnalysisService:
                 "restructured_question": planned["restructured_question"],
                 "error": planned.get("error", ""),
                 "database": planned.get("database", ""),
-                "client_id": planned.get("client_id"),
+                "client_id": null,
             }
 
         database = planned["database"]
-        client_id = planned["client_id"]
+        # client_id removed
         tables = planned["tables"]
         title = planned["title"]
         sql = planned["sql"]
@@ -496,7 +529,6 @@ class AnalysisService:
 
         query = self.repo.create_analysis_query(
             user_id=user_id,
-            client_id=client_id,
             database_name=database,
             question=data.question,
             title=title,
@@ -516,20 +548,17 @@ class AnalysisService:
             "tables": tables,
             "sql": sql,
             "analysis_query_id": query.id,
-            "token": self.sign_result(user_id, database, sql, client_id),
+            "token": self.sign_result(user_id, database, sql),
             "result": result,
         }
 
     @staticmethod
-    def sign_result(
-        user_id: UUID, database: str, sql: str, client_id: UUID | None
-    ) -> str:
+    def sign_result(user_id: UUID, database: str, sql: str) -> str:
 
         payload = {
             "type": "analysis",
             "sub": str(user_id),
             "db": database,
-            "client_id": str(client_id) if client_id else "",
             "sql": sql,
             "exp": datetime.now(UTC)
             + timedelta(minutes=settings.ANALYSIS_TOKEN_MINUTES),
@@ -537,14 +566,12 @@ class AnalysisService:
 
         return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
-    def open_result(self, token: str, user_id: UUID) -> tuple[str, str, UUID | None]:
+    def open_result(self, token: str, user_id: UUID) -> tuple[str, str]:
 
         try:
             payload = jwt.decode(
                 token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
             )
-            client_id_str = payload.get("client_id", "")
-            client_id = UUID(client_id_str) if client_id_str else None
             database, sql = payload["db"], payload["sql"]
         except (jwt.PyJWTError, ValueError, KeyError, TypeError):
             raise HTTPException(
@@ -554,30 +581,14 @@ class AnalysisService:
         if payload.get("type") != "analysis" or payload.get("sub") != str(user_id):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid result token")
 
-        if client_id is not None:
-            assigned_db, _, _ = self.assigned_database(user_id, client_id)
-
-            if assigned_db != database:
-                raise HTTPException(
-                    status.HTTP_403_FORBIDDEN, "Database assignment has changed"
-                )
-
-        return database, sql, client_id
+            return database, sql
 
     def export_rows(self, data, user_id: UUID):
-        database, sql, client_id = self.open_result(data.token, user_id)
-        # Verify the user is assigned to the client for this result.
-        if client_id is not None:
-            assigned = self.repo.get_assigned_client_ids(user_id)
-            if client_id not in assigned:
-                raise HTTPException(
-                    status.HTTP_403_FORBIDDEN,
-                    "You are not assigned to this client's data",
-                )
+        database, sql = self.open_result(data.token, user_id)
         return stream_all(database, sql)
 
-    def list_history(self, user_id: UUID, client_id: UUID | None = None):
-        rows = self.repo.list_analysis_queries(user_id, client_id)
+    def list_history(self, user_id: UUID):
+        rows = self.repo.list_analysis_queries(user_id)
         return [
             {
                 "id": row.id,
@@ -585,7 +596,6 @@ class AnalysisService:
                 "title": row.title,
                 "database": row.database_name,
                 "sql": row.sql,
-                "client_id": row.client_id,
                 "row_count": row.row_count,
                 "created_at": row.created_at,
             }

@@ -23,9 +23,6 @@ class Document(Base):
         index=True,
     )
 
-    client_id: Mapped[UUID | None] = mapped_column(
-        Uuid, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(
         String(100),
@@ -54,7 +51,7 @@ class Document(Base):
 
 
 class DocumentAssignment(Base):
-    """Direct document access for specific dashboard users."""
+    """Direct document access for specific users."""
 
     __tablename__ = "document_assignments"
 

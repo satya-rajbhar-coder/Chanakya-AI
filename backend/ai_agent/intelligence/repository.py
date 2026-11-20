@@ -13,8 +13,6 @@ from .models import ChatAnalysisQuery
 
 
 class IntelligenceRepository:
-    """Data access for intelligence chat persistence (conversations + messages)."""
-
     def __init__(self, db: Session, user: User):
         self.db = db
         self.user = user
@@ -22,12 +20,10 @@ class IntelligenceRepository:
         self.message_repo = MessageRepository(db)
 
     def get_or_create_conversation(self, conversation_id: UUID | None, title: str):
-        """Return an existing conversation (owned by the user) or create a new one."""
         if conversation_id is not None:
             return self.conversations.get_conversation(conversation_id, self.user)
         return self.conversations.create_conversation(
-            self.user,
-            ConversationCreate(title=title),
+            self.user, ConversationCreate(title=title)
         )
 
     def save_chat_turn(
@@ -37,14 +33,6 @@ class IntelligenceRepository:
         assistant_content: str,
         analysis_query_id: UUID | None = None,
     ):
-        """Persist a user + assistant message pair for an intelligence turn.
-
-        The user message is stamped with an explicit ``created_at`` and the
-        assistant message is stamped one microsecond later.  Without this,
-        both rows share the database transaction's ``now()`` timestamp and the
-        ``id`` tiebreaker (random UUIDs) can order the assistant message
-        before the user message, which the frontend then displays backwards.
-        """
         now = datetime.now(UTC)
         user_message = Message(
             conversation_id=conversation_id,

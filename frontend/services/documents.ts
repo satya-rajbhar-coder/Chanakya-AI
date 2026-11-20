@@ -5,7 +5,6 @@ export const ACCEPTED_FILES = ".pdf,.txt,.md";
 export interface DocumentResponse {
     id: string;
     user_id: string;
-    client_id: string | null;
     assigned_user_ids: string[];
     filename: string;
     content_type: string;
@@ -38,4 +37,16 @@ export const uploadDocument = async (
 // Admin only.
 export const deleteDocument = async (id: string): Promise<void> => {
     await api.delete(`/documents/${id}`);
+};
+
+// Admin only. Assign/unassign users to a document.
+export const assignDocumentUsers = async (
+    documentId: string,
+    userIds: string[]
+): Promise<DocumentResponse> => {
+    const response = await api.patch<DocumentResponse>(
+        `/documents/${documentId}/assign`,
+        userIds
+    );
+    return response.data;
 };

@@ -27,21 +27,14 @@ def ask_intelligence(
     svc: IntelligenceService = Depends(_service),
     _rate_limit: Annotated[None, Depends(rate_limit_dependency)] = None,
 ):
-    """Hybrid question-answering: routes to database (SQL), documents (RAG),
-    both, or indicates the question cannot be answered from available sources.
-    Chats are persisted to the conversations/messages tables.
-
-    Rate-limited per authenticated user to prevent request dumping.
-    """
     try:
         return svc.ask(
             data.question,
-            client_id=data.client_id,
             conversation_id=conversation_id or data.conversation_id,
         )
     except HTTPException:
         raise
-    except Exception as exc:  # pragma: no cover - log and return 502
+    except Exception as exc:
         logger = __import__("logging").getLogger(__name__)
         logger.exception("Intelligence ask failed")
         raise HTTPException(

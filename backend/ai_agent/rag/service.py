@@ -1,6 +1,8 @@
 import logging
 import re
+import time
 from dataclasses import dataclass
+from typing import Callable
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from langchain_core.documents import Document as LCDocument
@@ -19,6 +21,42 @@ logger = logging.getLogger(__name__)
 SOURCES_MARKER = "\n\n---\n**Sources:**"
 EMBED_BATCH_SIZE = 32
 _TABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+MAX_RETRIES = 5
+INITIAL_RETRY_DELAY = 1.0
+MAX_RETRY_DELAY = 60.0
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    """Check if an exception is a Google API 429 quota error."""
+    exc_str = str(exc).lower()
+    return "429" in exc_str or "resource_exhausted" in exc_str or "quota" in exc_str
+
+
+def _retry_with_backoff(func: Callable, *args, **kwargs):
+    """Retry a function with exponential backoff on 429 quota errors."""
+    delay = INITIAL_RETRY_DELAY
+    last_exc = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if not _is_quota_error(exc):
+                raise
+            if attempt < MAX_RETRIES - 1:
+                logger.warning(
+                    "Quota exceeded (attempt %d/%d), retrying in %.1fs...",
+                    attempt + 1,
+                    MAX_RETRIES,
+                    delay,
+                )
+                time.sleep(delay)
+                delay = min(delay * 2, MAX_RETRY_DELAY)
+            else:
+                logger.error(
+                    "Quota exceeded after %d retries, giving up", MAX_RETRIES
+                )
+    raise last_exc
 
 
 def _vector_table() -> str:
@@ -114,7 +152,9 @@ def ingest_document(
     try:
         for start in range(0, len(chunks), EMBED_BATCH_SIZE):
             end = start + EMBED_BATCH_SIZE
-            store.add_documents(chunks[start:end], ids=ids[start:end])
+            _retry_with_backoff(
+                store.add_documents, chunks[start:end], ids=ids[start:end]
+            )
             logger.info(
                 "Stored chunks %s-%s/%s for %s",
                 start,

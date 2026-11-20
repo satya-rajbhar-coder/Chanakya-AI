@@ -13,6 +13,7 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=128)
     current_password: str | None = Field(default=None, max_length=128)
     party_name: str | None = Field(default=None, max_length=100)
+    corporation: str | None = Field(default=None, max_length=100)
     ward_no: int | None = Field(default=None)
     assembly_no: str | None = Field(default=None, max_length=50)
     parliamentary_constituency: str | None = Field(default=None, max_length=100)
@@ -32,8 +33,19 @@ class UserResponse(BaseModel):
     hierarchy_level: int | None = None
     is_active: bool
     party_name: str | None = None
+    corporation: str | None = None
     ward_no: int | None = None
     assembly_no: str | None = None
     parliamentary_constituency: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Role labels for display
+ROLE_LABELS: dict[str, str] = {
+    "karyakarta": "Karyakarta (Grassroots Worker)",
+    "corporator": "Corporator (Ward Councilor)",
+    "aamdar": "Aamdar (MLA)",
+    "khasdar": "Khasdar (MP)",
+    "admin": "Administrator",
+}

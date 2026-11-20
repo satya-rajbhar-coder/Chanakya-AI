@@ -9,7 +9,7 @@ export interface AuthMessage {
     message: string
 }
 
-export type UserRole = "admin" | "karyakarta" | "corporator" | "aamdar" | "khasdar" | "user";
+export type UserRole = "admin" | "karyakarta" | "corporator" | "aamdar" | "khasdar";
 
 export interface UserResponse {
     id: string;
@@ -19,6 +19,7 @@ export interface UserResponse {
     hierarchy_level: number | null;
     is_active: boolean;
     party_name: string | null;
+    corporation: string | null;
     ward_no: string | null;
     assembly_no: string | null;
     parliamentary_constituency: string | null;
@@ -45,6 +46,12 @@ export const getCurrentUser = async (): Promise<UserResponse> => {
 
 export const logout = async () => {
     const response = await api.post("/auth/logout");
+
+    return response.data;
+}
+
+export const forgotPassword = async (data: { email: string }): Promise<AuthMessage> => {
+    const response = await api.post<AuthMessage>("/auth/forgot-password", data);
 
     return response.data;
 }

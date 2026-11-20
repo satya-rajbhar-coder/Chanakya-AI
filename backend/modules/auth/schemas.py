@@ -12,5 +12,9 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
 class AuthMessage(BaseModel):
     message: str

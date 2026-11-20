@@ -32,14 +32,16 @@ export const getAllConversationMessages = async ({
     conversation_id,
     cursor,
     limit = 50,
+    signal,
 }: {
     conversation_id: string;
     cursor?: string | null;
     limit?: number;
+    signal?: AbortSignal;
 }): Promise<MessagePage> => {
     const response = await api.get<MessagePage>(
         `/conversations/${conversation_id}/messages`,
-        { params: { limit, cursor: cursor ?? undefined } }
+        { params: { limit, cursor: cursor ?? undefined }, signal },
     );
 
     return response.data;
@@ -50,6 +52,7 @@ const MAX_MESSAGE_PAGES = 1000
 
 export const getEntireConversationMessages = async (
     conversation_id: string,
+    signal?: AbortSignal,
 ): Promise<MessageResponse[]> => {
     const messages: MessageResponse[] = []
     let cursor: string | null = null
@@ -63,6 +66,7 @@ export const getEntireConversationMessages = async (
             conversation_id,
             cursor,
             limit: 100,
+            signal,
         })
         messages.push(...page.items)
         cursor = page.next_cursor

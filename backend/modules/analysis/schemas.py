@@ -9,20 +9,8 @@ Question = Annotated[
 ]
 
 
-class ClientResponse(BaseModel):
-    id: UUID
-    code: str
-    name: str
-    client_identifier: str
-    database_name: str
-    description: str | None
-    is_active: bool
-    model_config = ConfigDict(from_attributes=True)
-
-
 class AskRequest(BaseModel):
     question: Question
-    client_id: UUID | None = None
 
 
 class ResultPage(BaseModel):
@@ -53,8 +41,6 @@ class HistoryResponse(BaseModel):
     question: str
     title: str | None
     database: str
-    sql: str
-    client_id: UUID | None
     row_count: int | None
     created_at: datetime
 
@@ -67,7 +53,6 @@ class UserHistoryResponse(BaseModel):
     question: str
     title: str | None
     database: str
-    client_id: UUID | None
     row_count: int | None
     created_at: datetime
 

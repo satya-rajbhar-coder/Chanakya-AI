@@ -363,7 +363,6 @@ export default function DashboardPage() {
         try {
             const data = await askIntelligence({
                 question,
-                client_id: selectedClientId ?? undefined,
                 conversation_id: conversationId ?? undefined,
             })
             if (data.conversation_id) {

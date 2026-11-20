@@ -56,14 +56,19 @@ export interface IntelligenceResponse {
 
 export interface IntelligenceRequest {
     question: string
-    client_id?: string | null
     conversation_id?: string | null
 }
 
-const send = (path: string, method: string, body?: unknown): Promise<Response> =>
-    rawSend(`/intelligence${path}`, method, body)
+const send = (
+    path: string,
+    method: string,
+    body?: unknown,
+    signal?: AbortSignal,
+): Promise<Response> =>
+    rawSend(`/intelligence${path}`, method, body, signal)
 
 export const askIntelligence = async (
     data: IntelligenceRequest,
+    signal?: AbortSignal,
 ): Promise<IntelligenceResponse> =>
-    (await send("/ask", "POST", data)).json()
+    (await send("/ask", "POST", data, signal)).json()

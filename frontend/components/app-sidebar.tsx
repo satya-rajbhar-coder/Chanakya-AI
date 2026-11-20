@@ -17,7 +17,7 @@ import {
     SidebarMenuButton,
 } from "@/components/ui/sidebar"
 
-import { useTheme } from "next-themes"
+import { useTheme } from "@/components/theme-provider"
 
 import { useWorkspace } from "@/components/workspace-provider"
 
@@ -136,16 +136,11 @@ export const AppSidebar = ({ user }: AppSidebarProps) => {
 
                             {isAdmin && (
                                 <SidebarMenuItem>
-                                    <SidebarMenuButton>
-                                        <Link
-                                            href="/admin"
-                                            className="flex w-full items-center gap-3"
-                                        >
-                                            <ShieldCheck className="h-4 w-4" />
-                                            <span className="group-data-[collapsible=icon]:hidden">
-                                                Admin Panel
-                                            </span>
-                                        </Link>
+                                    <SidebarMenuButton render={<Link href="/admin" />}>
+                                        <ShieldCheck className="h-4 w-4" />
+                                        <span className="group-data-[collapsible=icon]:hidden">
+                                            Admin Panel
+                                        </span>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                             )}

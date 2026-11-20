@@ -3,7 +3,6 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -19,56 +18,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from database.base import Base
 
 
-class Client(Base):
-    __tablename__ = "clients"
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    database_name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
-    client_identifier: Mapped[str] = mapped_column(
-        String(100), nullable=False, unique=True
-    )
-    description: Mapped[str | None] = mapped_column(Text)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
-class UserClient(Base):
-    __tablename__ = "user_clients"
-
-    user_id: Mapped[UUID] = mapped_column(
-        Uuid,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True,
-        nullable=False,
-    )
-    client_id: Mapped[UUID] = mapped_column(
-        Uuid,
-        ForeignKey("clients.id", ondelete="CASCADE"),
-        primary_key=True,
-        nullable=False,
-    )
-    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
 class SavedAnalysis(Base):
     __tablename__ = "saved_analyses"
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    client_id: Mapped[UUID | None] = mapped_column(
-        Uuid,
-        ForeignKey("clients.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
@@ -87,12 +42,6 @@ class AnalysisQuery(Base):
         Uuid,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
-    )
-    client_id: Mapped[UUID | None] = mapped_column(
-        Uuid,
-        ForeignKey("clients.id", ondelete="SET NULL"),
-        nullable=True,
         index=True,
     )
     database_name: Mapped[str] = mapped_column(String(100), nullable=False)

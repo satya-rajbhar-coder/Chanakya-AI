@@ -35,7 +35,6 @@ _THINK_RE = re.compile(r"<?xml.*?xml>", re.DOTALL | re.IGNORECASE)
 
 
 def _clean_model_text(text: str) -> str:
-    """Remove model reasoning tags and surrounding whitespace."""
     return _THINK_RE.sub("", text).strip()
 
 
@@ -49,19 +48,6 @@ def _invoke_with_fallback(
     fallback_fn: Optional[Callable[[], Any]] = None,
     fallback_name: str = "fallback",
 ) -> Any:
-    """
-    Invoke a function with fallback mechanism.
-    
-    Args:
-        invoke_fn: Primary function to invoke
-        primary_name: Name of primary function for logging
-        fallback_fn: Fallback function to invoke if primary fails (optional)
-        fallback_name: Name of fallback function for logging
-    
-    Returns:
-        The result from either primary or fallback function
-    """
-    # Try primary function
     try:
         logger.debug(f"Invoking {primary_name}")
         result = invoke_fn()
@@ -69,8 +55,7 @@ def _invoke_with_fallback(
         return result
     except Exception as e:
         logger.warning(f"{primary_name} failed: {type(e).__name__}: {e}")
-        
-        # Try fallback function if available
+
         if fallback_fn is not None:
             try:
                 logger.info(f"Falling back to {fallback_name}")
@@ -78,8 +63,12 @@ def _invoke_with_fallback(
                 logger.info(f"{fallback_name} succeeded")
                 return result
             except Exception as fallback_error:
-                logger.error(f"{fallback_name} also failed: {type(fallback_error).__name__}: {fallback_error}")
-                raise RuntimeError(f"Both {primary_name} and {fallback_name} failed. Primary: {e}, Fallback: {fallback_error}")
+                logger.error(
+                    f"{fallback_name} also failed: {type(fallback_error).__name__}: {fallback_error}"
+                )
+                raise RuntimeError(
+                    f"Both {primary_name} and {fallback_name} failed. Primary: {e}, Fallback: {fallback_error}"
+                )
         else:
             logger.error(f"No fallback available, {primary_name} failed: {e}")
             raise
@@ -94,29 +83,34 @@ def _invoke_llm_with_fallback(
 ) -> str:
     """
     Invoke LLM with fallback mechanism.
-    
+
     Args:
         messages: List of messages to send to the LLM
         primary_llm: Primary LLM instance
         fallback_llm: Fallback LLM instance (optional)
         primary_name: Name of primary LLM for logging
         fallback_name: Name of fallback LLM for logging
-    
+
     Returns:
         The response text from either primary or fallback LLM
     """
+
     def primary_invoke():
         result = primary_llm.invoke(messages)
-        text = result.content if isinstance(result.content, str) else str(result.content)
+        text = (
+            result.content if isinstance(result.content, str) else str(result.content)
+        )
         return _clean_model_text(text)
-    
+
     def fallback_invoke():
         if fallback_llm is None:
             raise RuntimeError("No fallback LLM configured")
         result = fallback_llm.invoke(messages)
-        text = result.content if isinstance(result.content, str) else str(result.content)
+        text = (
+            result.content if isinstance(result.content, str) else str(result.content)
+        )
         return _clean_model_text(text)
-    
+
     return _invoke_with_fallback(
         primary_invoke,
         primary_name=primary_name,

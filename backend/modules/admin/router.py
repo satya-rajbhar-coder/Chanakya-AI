@@ -11,23 +11,16 @@ from modules.admin.schemas import (
     AccountUpdate,
     AssignmentsUpdate,
     AvailableDatabase,
-    ClientCreate,
-    ClientResponse,
-    ClientUpdate,
     DocumentAssignments,
 )
 from modules.admin.services import (
     assign_document,
     assign_user,
-    create_client,
     create_user,
-    delete_client,
     delete_user,
     deactivate_user,
     get_available_databases,
-    list_clients,
     list_users,
-    update_client,
     update_user,
 )
 from modules.documents.schemas import DocumentResponse
@@ -39,33 +32,6 @@ router = APIRouter(prefix="/admin", tags=["Administration"])
 def available_databases(admin: AdminUser, db: Session = Depends(get_db)):
     """Get all available databases from the analysis DB URL template with assignment status."""
     return get_available_databases(db)
-
-
-@router.get("/clients", response_model=list[ClientResponse])
-def clients(admin: AdminUser, db: Session = Depends(get_db)):
-    return list_clients(db)
-
-
-@router.post("/clients", response_model=ClientResponse, status_code=201)
-def create_client_endpoint(
-    data: ClientCreate, admin: AdminUser, db: Session = Depends(get_db)
-):
-    return create_client(db, data.model_dump())
-
-
-@router.patch("/clients/{client_id}", response_model=ClientResponse)
-def update_client_endpoint(
-    client_id: UUID, data: ClientUpdate, admin: AdminUser, db: Session = Depends(get_db)
-):
-    return update_client(db, client_id, data.model_dump(exclude_unset=True))
-
-
-@router.delete("/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_client_endpoint(
-    client_id: UUID, admin: AdminUser, db: Session = Depends(get_db)
-):
-    delete_client(db, client_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/users", response_model=list[AccountResponse])
@@ -112,7 +78,7 @@ def assign_user_endpoint(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
-    return assign_user(db, user_id, data.client_ids)
+    return assign_user(db, user_id, data.database_name)
 
 
 @router.put("/documents/{document_id}/assignments", response_model=DocumentResponse)

@@ -14,6 +14,18 @@ if TYPE_CHECKING:
     from modules.messages.models import Message
 
 
+# Role hierarchy: lowest to highest authority (only 5 roles)
+ROLE_HIERARCHY: dict[str, int] = {
+    "karyakarta": 1,
+    "corporator": 2,
+    "aamdar": 3,
+    "khasdar": 4,
+    "admin": 5,
+}
+
+VALID_ROLES = frozenset(ROLE_HIERARCHY.keys())
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -31,13 +43,22 @@ class User(Base):
         String(255),
         nullable=False,
     )
-    role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="user")
-    hierarchy_level: Mapped[int | None] = mapped_column(nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="karyakarta"
+    )
+    hierarchy_level: Mapped[int | None] = mapped_column(
+        nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
     party_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    corporation: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ward_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     assembly_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    parliamentary_constituency: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    parliamentary_constituency: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

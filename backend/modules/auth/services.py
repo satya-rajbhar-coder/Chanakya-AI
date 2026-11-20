@@ -21,6 +21,18 @@ from .models import RefreshToken
 from .repository import RefreshTokenRepository
 
 
+# Role hierarchy: lowest to highest authority (only 5 roles)
+ROLE_HIERARCHY: dict[str, int] = {
+    "karyakarta": 1,
+    "corporator": 2,
+    "aamdar": 3,
+    "khasdar": 4,
+    "admin": 5,
+}
+
+VALID_ROLES = frozenset(ROLE_HIERARCHY.keys())
+
+
 def _normalize_email(email: str) -> str:
     return email.lower().strip()
 
@@ -48,18 +60,23 @@ class AuthService:
         email: str,
         name: str,
         password: str,
-        role: str = "user",
+        role: str = "karyakarta",
         party_name: str | None = None,
-        ward_no: str | None = None,
+        corporation: str | None = None,
+        ward_no: int | None = None,
         assembly_no: str | None = None,
         parliamentary_constituency: str | None = None,
     ) -> User:
-        from modules.admin.schemas import ROLE_HIERARCHY
-
         email = _normalize_email(email)
         if self.users.get_by_email(email):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="User already exists"
+            )
+
+        if role not in VALID_ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role '{role}'. Must be one of: {', '.join(sorted(VALID_ROLES))}",
             )
 
         user = User(
@@ -69,6 +86,7 @@ class AuthService:
             role=role,
             hierarchy_level=ROLE_HIERARCHY.get(role),
             party_name=party_name,
+            corporation=corporation,
             ward_no=ward_no,
             assembly_no=assembly_no,
             parliamentary_constituency=parliamentary_constituency,
@@ -138,3 +156,30 @@ class AuthService:
         if token_row and token_row.revoked_at is None:
             self.tokens.revoke(token_row, datetime.now(UTC))
             self.db.commit()
+
+    def request_password_reset(self, email: str) -> None:
+        """Request a password reset for the given email.
+
+        Always succeeds silently to prevent email enumeration attacks.
+        In production, this would generate a time-limited reset token
+        and send it via email.
+        """
+        user = self.users.get_by_email(_normalize_email(email))
+        if user and user.is_active:
+            # Generate a reset token (stored in refresh_tokens table for simplicity)
+            # The token can be used to reset the password via a reset-password endpoint
+            from core.security import create_access_token
+            reset_token = create_access_token(
+                data={"sub": str(user.id), "type": "password_reset"},
+                expires_delta=timedelta(hours=1),
+            )
+            # Store the reset token hash for validation
+            now = datetime.now(UTC)
+            row = RefreshToken(
+                token_hash=hash_token(reset_token),
+                user_id=user.id,
+                expires_at=now + timedelta(hours=1),
+            )
+            self.tokens.add(row)
+            self.db.commit()
+            # In production: send email with reset link containing reset_token

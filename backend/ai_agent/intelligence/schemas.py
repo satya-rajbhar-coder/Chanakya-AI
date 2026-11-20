@@ -52,7 +52,6 @@ class DocumentResult(BaseModel):
 
 class IntelligenceRequest(BaseModel):
     question: Question
-    client_id: UUID | None = None
     conversation_id: UUID | None = None
 
 

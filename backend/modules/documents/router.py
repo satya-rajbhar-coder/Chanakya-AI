@@ -1,7 +1,8 @@
 import json
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from api.dependencies import AdminUser, CurrentUser
@@ -49,3 +50,15 @@ async def delete_document(
     document_id: UUID, current_user: AdminUser, db: Session = Depends(get_db)
 ) -> None:
     await DocumentService(db).delete_document(current_user, document_id)
+
+
+@router.patch("/{document_id}/assign", response_model=DocumentResponse)
+async def assign_document_users(
+    document_id: UUID,
+    user_ids: Annotated[list[UUID], Body()],
+    current_user: AdminUser,
+    db: Session = Depends(get_db),
+) -> DocumentResponse:
+    """Assign or unassign users to a document."""
+    document = await DocumentService(db).set_assignments(document_id, user_ids)
+    return DocumentResponse.model_validate(document)
